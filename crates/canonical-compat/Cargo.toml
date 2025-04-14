@@ -1,0 +1,17 @@
+[package]
+name = "canonical-compat"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "canonical-compat"
+path = "src/lib.rs"
+
+[dependencies]
+canonical-core = { path = "../canonical-core" }
+serde = { version = "1.0.217", features = ["derive"] }
+serde_json = "1.0"
+string-interner = "0.19.0"
+
+[lib]
+crate-type = ["rlib", "staticlib"]
