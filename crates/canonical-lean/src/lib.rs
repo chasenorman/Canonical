@@ -1,5 +1,5 @@
 // https://github.com/leanprover/lean4/blob/master/src/include/lean/lean.h
-use std::ffi::{CStr, CString};
+use std::ffi::{CStr, CString, c_char};
 use canonical_compat::ir::*;
 use canonical_core::core::*;
 use canonical_core::prover::*;
@@ -52,14 +52,14 @@ pub struct LeanStringObject {
 fn to_string(s: *const LeanStringObject) -> String {
     unsafe {
         assert!((*s).m_header.m_tag == 249);
-        let ptr = (s as *const i8).add(std::mem::size_of::<LeanStringObject>());
+        let ptr = (s as *const c_char).add(std::mem::size_of::<LeanStringObject>());
         CStr::from_ptr(ptr).to_string_lossy().into_owned()
     }
 }
 
 fn to_lean_string(s: &str) -> *const LeanStringObject {
     let c_str = CString::new(s).unwrap().into_raw();
-    unsafe { lean_mk_string(c_str) }
+    unsafe { lean_mk_string(c_str as *const i8) }
 }
 
 #[repr(C)]
