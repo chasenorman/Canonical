@@ -1,5 +1,5 @@
 [target.x86_64-pc-windows-gnu]
-linker = 'c:\Users\runneradmin\.elan\toolchains\leanprover--lean4---v4.18.0\bin\clang.exe'
+linker = 'c:\Users\runneradmin\.elan\toolchains\leanprover--lean4---v4.19.0\bin\clang.exe'
 
 [target.'cfg(target_os = "macos")']
 rustflags = [
