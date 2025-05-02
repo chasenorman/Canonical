@@ -1,6 +1,6 @@
 name = "lean"
 version = "0.1.0"
-defaultTargets = []
+defaultTargets = ["Test"]
 
 [[require]]
 name = "Canonical"
@@ -9,4 +9,8 @@ git = "https://github.com/chasenorman/CanonicalLean"
 [[require]]
 name = "mathlib"
 scope = "leanprover-community"
-rev = "v4.18.0"
+rev = "v4.19.0"
+
+[[lean_lib]]
+name = "Test"
+root = "Test"

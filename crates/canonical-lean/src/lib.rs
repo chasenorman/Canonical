@@ -1,5 +1,5 @@
 // https://github.com/leanprover/lean4/blob/master/src/include/lean/lean.h
-use std::ffi::{CStr, CString, c_char};
+use std::ffi::{CStr, CString, c_char, c_void};
 use canonical_compat::ir::*;
 use canonical_core::core::*;
 use canonical_core::prover::*;
@@ -104,24 +104,35 @@ fn lean_align(v: usize, a: usize) -> usize {
     (v / a) * a + a * (if v % a != 0 { 1 } else { 0 }) 
 }
 
-fn lean_get_slot_idx(sz: usize) -> usize {
-    assert!(sz > 0);
-    assert!(lean_align(sz, 8) == sz);
-    sz / 8 - 1
+// fn lean_get_slot_idx(sz: usize) -> usize {
+//     assert!(sz > 0);
+//     assert!(lean_align(sz, 8) == sz);
+//     sz / 8 - 1
+// }
+
+fn lean_alloc_small_object(sz: usize) -> *mut LeanObject {
+    let sz = lean_align(sz, 8);
+    unsafe {
+        let mem = mi_malloc_small(sz);
+        if mem.is_null() {
+            lean_internal_panic_out_of_memory();
+        }
+        let o = mem as *mut LeanObject;
+        (*o).m_cs_sz = sz as u16;
+        return o;
+    }
 }
 
 fn lean_alloc_ctor_memory(sz: usize) -> *mut LeanCtorObject {
     let sz1 = lean_align(sz, 8);
-    let slot_idx = lean_get_slot_idx(sz1);
-    assert!(sz1 <= 4096);
+    let r = lean_alloc_small_object(sz);
     unsafe {
-        let r = lean_alloc_small(sz1, slot_idx);
         if sz1 > sz {
             let end = (r as *const u8).add(sz1) as *mut usize;
             end.sub(1).write(0);
         }
-        r as *mut LeanCtorObject
     }
+    return r as *mut LeanCtorObject;
 }
 
 #[repr(C)]
@@ -406,8 +417,10 @@ fn to_lean_result(terms: *const LeanArrayObject, result: DFSResult, last_level_s
 extern "C" {
     fn lean_mk_string(s: *const i8) -> *const LeanStringObject;
     fn lean_alloc_object(sz: usize) -> *const LeanObject;
-    fn lean_alloc_small(sz: usize, slot_idx: usize) -> *const LeanObject;
+    // fn lean_alloc_small(sz: usize, slot_idx: usize) -> *const LeanObject;
     fn lean_io_check_canceled_core() -> bool;
+    fn mi_malloc_small(sz: usize) -> *mut c_void;
+    fn lean_internal_panic_out_of_memory();
     // fn lean_dbg_trace(s: *const LeanStringObject, f: *const LeanObject);
 }
 
