@@ -3,6 +3,6 @@ linker = 'c:\Users\runneradmin\.elan\toolchains\leanprover--lean4---v4.19.0\bin\
 
 [target.'cfg(target_os = "macos")']
 rustflags = [
-  "-C", "link-arg=-Wl,-install_name,@loader_path/libcanonical.dylib",
+  "-C", "link-arg=-Wl,-install_name,@loader_path/libcanonicallean.dylib",
   "-C", "link-arg=-Wl,-rpath,@loader_path"
 ]

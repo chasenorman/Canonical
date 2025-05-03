@@ -1,5 +1,5 @@
 [package]
-name = "canonical"
+name = "canonical_lean"
 version.workspace = true
 edition.workspace = true
 
