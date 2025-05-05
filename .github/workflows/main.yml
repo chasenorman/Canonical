@@ -31,8 +31,10 @@ jobs:
       - name: Install Lean
         shell: bash
         run: |
-          elan toolchain install stable
-          elan default stable
+          line=$(cat lean/lean-toolchain)
+          version=${line#*:}
+          elan toolchain install "$version"
+          elan default "$version"
 
       - name: Add Lean to PATH (Windows)
         if: runner.os == 'Windows'
@@ -41,7 +43,11 @@ jobs:
 
       - name: Build canonical (Windows)
         if: runner.os == 'Windows'
-        run: cargo build -p canonical_lean --release --target x86_64-pc-windows-gnu
+        run: |
+          prefix=$(lean --print-prefix)
+          echo "[target.x86_64-pc-windows-gnu]" > .cargo/config.toml
+          echo "linker = '${prefix}\\bin\\clang.exe'" >> .cargo/config.toml
+          cargo build -p canonical_lean --release --target x86_64-pc-windows-gnu
 
       - name: Build canonical
         if: runner.os != 'Windows'

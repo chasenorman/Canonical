@@ -1,6 +1,3 @@
-[target.x86_64-pc-windows-gnu]
-linker = 'c:\Users\runneradmin\.elan\toolchains\leanprover--lean4---v4.20.0-rc3\bin\clang.exe'
-
 [target.'cfg(target_os = "macos")']
 rustflags = [
   "-C", "link-arg=-Wl,-install_name,@loader_path/libcanonical_lean.dylib",
