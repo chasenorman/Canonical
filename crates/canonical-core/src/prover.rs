@@ -201,7 +201,7 @@ impl Prover {
     }
 
     /// Return a clone of this prover and the corresponding translation of `meta`, with `stats_buffer` moved into `stats`.
-    fn try_clone(&self, meta: W<Meta>) -> Option<(Self, W<Meta>)> {
+    pub fn try_clone(&self, meta: W<Meta>) -> Option<(Self, W<Meta>)> {
         let prover = Prover::new(self.meta.borrow().typ.as_ref().unwrap().clone(), self.program_synthesis);
         transfer(self.meta.downgrade(), prover.meta.downgrade(), meta).1.map(|x| (prover, x))
     }

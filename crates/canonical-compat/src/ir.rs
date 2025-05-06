@@ -174,7 +174,7 @@ impl IRTerm {
         let lets = bindings.borrow().lets.iter().map(|b| 
             IRLet { var: IRVar { name: b.borrow().name.clone(), irrelevant: false }, value: IRValue::Opaque }).collect();
         match &meta.borrow().assignment {
-            None => IRTerm { params, lets, head: Self::to_meta(meta, &es), args: Vec::new() },
+            None => IRTerm { params, lets, head: Self::meta_html(meta), args: Vec::new() },
             Some(assignment) => IRTerm {
                 params, lets,
                 head: es.sub_es(assignment.head.0).get_var(assignment.head.1).bind.borrow().name.clone(),
@@ -183,12 +183,12 @@ impl IRTerm {
         }
     }
 
-    fn to_meta(meta: W<Meta>, es: &ES) -> String {
+    fn meta_html(meta: W<Meta>) -> String {
         let varname = "?".to_string() + &meta.borrow().typ.as_ref().unwrap().2.borrow().name;
         let meta_id = meta.borrow() as *const Meta as usize;
 
         let options = meta.borrow().gamma.iter().filter_map(|(db, linked)| {
-            // TODO properly set program syntehsis
+            // TODO properly set program synthesis
             if let Some(Some(result)) = test(db, linked, meta.clone(), false) {
                 let name = result.0.bind.borrow().name.clone();
 
@@ -205,7 +205,7 @@ impl IRTerm {
 
         let tooltiptext = format!("<div class='provers tooltiptext'>{options}</div>");
         let tooltip = format!("<div class='tooltip'><span class='meta'>{varname}</span>{tooltiptext}</div>");
-        return format!("<label><input type='radio' name='meta'>{tooltip}</label>")
+        return format!("<label><input type='radio' name='meta' id='{meta_id}'>{tooltip}</label>")
     }
 }
 

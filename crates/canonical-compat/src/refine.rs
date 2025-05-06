@@ -13,14 +13,21 @@ use canonical_core::core::*;
 use canonical_core::memory::*;
 use canonical_core::search::*;
 use crate::ir::*;
+use std::thread;
+use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
+use std::sync::MutexGuard;
 
 pub async fn main(prover: Prover) {
-    let state = AppState { prover: Mutex::new(prover) };
+    let state = AppState { prover: Mutex::new(prover), assigned: Mutex::new(Vec::new()) };
     let app = Router::new()
         .route("/", get(index))
         .route("/assign", post(assign))
         .route("/unassign", post(unassign))
+        .route("/reset", post(reset))
         .route("/term", post(term))
+        .route("/canonical", post(canonical))
         .with_state(Arc::new(state));
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
@@ -28,7 +35,8 @@ pub async fn main(prover: Prover) {
 }
 
 struct AppState {
-    prover: Mutex<Prover>
+    prover: Mutex<Prover>,
+    assigned: Mutex<Vec<W<Meta>>>
 }
 
 #[derive(Deserialize, Debug)]
@@ -46,11 +54,18 @@ async fn index() -> impl IntoResponse {
     }
 }
 
-async fn term(State(state): State<Arc<AppState>>) -> Html<std::string::String> {
-    Html(IRTerm::from_term(state.prover.lock().unwrap().meta.downgrade(), &ES::new()).to_string())
+async fn term(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
+    let mut term = IRTerm::from_term(state.prover.lock().unwrap().meta.downgrade(), &ES::new());
+    term.params = Vec::new();
+    term.lets = Vec::new();
+    let html = term.to_string();
+    let next = Meta::next(state.prover.lock().unwrap().meta.downgrade())
+        .next.map(|m| m.meta.borrow() as *const Meta as usize);
+    
+    return Json(json!({ "html": html, "next": next }));
 }
 
-async fn assign(State(state): State<Arc<AppState>>, Json(assign): Json<Assign>) -> Html<std::string::String> {
+async fn assign(State(state): State<Arc<AppState>>, Json(assign): Json<Assign>) -> Json<serde_json::Value> {
     let index = if assign.def {
         Index::Let(assign.index)
     } else {
@@ -62,11 +77,52 @@ async fn assign(State(state): State<Arc<AppState>>, Json(assign): Json<Assign>) 
     let (assn, eqns, _) = test(db, meta.borrow().gamma.sub_es(db.0).linked.unwrap(), meta.clone(), false).unwrap().unwrap();
 
     meta.borrow_mut().assign(assn, eqns);
-    term(State(state)).await
+    state.assigned.lock().unwrap().push(meta.clone());
+    Json(json!({ }))
 }
 
 async fn unassign(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
+    let mut assigned = state.assigned.lock().unwrap();
+    if let Some(mut meta) = assigned.pop() {
+        meta.borrow_mut().unassign();
+    }
     Json(json!({ }))
+}
+
+async fn reset(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
+    let mut assigned = state.assigned.lock().unwrap();
+    assigned.clear();
+    let mut prover = state.prover.lock().unwrap();
+    prover.meta.borrow_mut().assignment = None; // destroys all metavariables and their equations. 
+    Json(json!({ }))
+}
+
+async fn canonical(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
+    let mut prover = state.prover.lock().unwrap();
+    let term = canonical_simple(prover.try_clone(prover.meta.downgrade()).unwrap().0);
+    if let Some(mut term) = term {
+        term.params = Vec::new();
+        term.lets = Vec::new();
+        Json(json!({ "html": term.to_string() }))
+    } else {
+        let html : Option<String> = None;
+        Json(json!({ "html": html }))
+    }
+}
+
+fn canonical_simple(prover: Prover) -> Option<IRTerm> {
+    let (tx, rx) = mpsc::channel();
+
+    thread::spawn(move || {
+        prover.prove(&|value| {
+            let _ = tx.send(Some(IRTerm::from_term(value.base, &ES::new())));
+        }, false);
+        tx.send(None)
+    });
+
+    let term = rx.recv_timeout(Duration::from_secs(1));
+    RUN.store(false, Ordering::Relaxed);
+    term.ok().flatten()
 }
 
 fn find_with_id(meta: W<Meta>, id: usize) -> Option<W<Meta>> {
