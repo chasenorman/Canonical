@@ -1,5 +1,6 @@
 use canonical_core::core::*;
 use canonical_core::memory::{S, W, WVec};
+use canonical_core::search::test;
 use std::fmt;
 use serde::{Serialize, Deserialize};
 use std::fs::File;
@@ -172,12 +173,39 @@ impl IRTerm {
         let params = bindings.borrow().params.iter().map(|b| IRVar { name: b.borrow().name.clone(), irrelevant: false }).collect();
         let lets = bindings.borrow().lets.iter().map(|b| 
             IRLet { var: IRVar { name: b.borrow().name.clone(), irrelevant: false }, value: IRValue::Opaque }).collect();
-        IRTerm {
-            params, lets,
-            head: es.sub_es(meta.borrow().assignment.as_ref().unwrap().head.0)
-                    .get_var(meta.borrow().assignment.as_ref().unwrap().head.1).bind.borrow().name.clone(),
-            args: meta.borrow().assignment.as_ref().unwrap().args.iter().map(|m| IRTerm::from_term(m.downgrade(), &es)).collect()
+        match &meta.borrow().assignment {
+            None => IRTerm { params, lets, head: Self::to_meta(meta, &es), args: Vec::new() },
+            Some(assignment) => IRTerm {
+                params, lets,
+                head: es.sub_es(assignment.head.0).get_var(assignment.head.1).bind.borrow().name.clone(),
+                args: meta.borrow().assignment.as_ref().unwrap().args.iter().map(|m| IRTerm::from_term(m.downgrade(), &es)).collect()
+            }
         }
+    }
+
+    fn to_meta(meta: W<Meta>, es: &ES) -> String {
+        let varname = "?".to_string() + &meta.borrow().typ.as_ref().unwrap().2.borrow().name;
+        let meta_id = meta.borrow() as *const Meta as usize;
+
+        let options = meta.borrow().gamma.iter().filter_map(|(db, linked)| {
+            // TODO properly set program syntehsis
+            if let Some(Some(result)) = test(db, linked, meta.clone(), false) {
+                let name = result.0.bind.borrow().name.clone();
+
+                let (index, def) = match db.1 {
+                    Index::Param(i) => (i, false),
+                    Index::Let(i) => (i, true)
+                };
+                let debruijn = db.0.0;
+                
+                return Some(format!("<button class='option' onclick='assign({meta_id}, {debruijn}, {index}, {def})'>{name}</button>"));
+            }
+            None
+        }).reduce(|a, b| format!("{a}</br>{b}")).unwrap_or_default();
+
+        let tooltiptext = format!("<div class='provers tooltiptext'>{options}</div>");
+        let tooltip = format!("<div class='tooltip'><span class='meta'>{varname}</span>{tooltiptext}</div>");
+        return format!("<label><input type='radio' name='meta'>{tooltip}</label>")
     }
 }
 

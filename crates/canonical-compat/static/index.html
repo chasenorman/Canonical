@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="">
+<head>
+    <title>Refine</title>
+    <style>
+
+        .meta {
+            background-color: rgb(242, 242, 247);
+            color: rgb(128, 128, 128);
+            border-radius: 3.5px;
+            padding: 2px 2px 2px 2px;
+            cursor: pointer;
+        }
+
+        .mono {
+            font-family: SFMono-Regular, Menlo, Consolas, "Liberation Mono", Courier, monospace;
+        }
+
+        input[type="radio"] {
+            display: none;
+        }
+
+        .tooltiptext {
+            display: none;
+        }
+        input[type="radio"]:checked ~ .tooltip .tooltiptext {
+            display: block;
+        }
+
+        input[type="radio"]:checked ~ .tooltip span {
+            background-color: rgb(35, 122, 255);
+            color: rgb(204, 228, 255);
+        }
+
+        #done {
+            color: rgb(103, 166, 213);
+        }
+
+        .provers {
+            width: 200px;
+            background-color: rgb(240, 240, 240);
+            padding: 5px;
+            border-radius: 8.5px;
+            border: 1px rgb(208, 208, 210);
+            z-index: 1;
+            margin-top: 10px;
+            margin-left: -8px;
+        }
+
+        .fail {
+            padding: 5px;
+            margin: 0;
+        }
+
+        .option {
+            background: none;
+            color: inherit;
+            border: none;
+            font: inherit;
+            outline: inherit;
+            width: 100%;
+            padding: 5px;
+            cursor: pointer;
+            text-align: left;
+            border-radius: 3.5px;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            overflow: hidden;
+        }
+
+        .type {
+            display: none;
+            color: rgb(127, 127, 127)
+        }
+
+        .option:hover {
+            background-color: rgb(202, 222, 247)
+        }
+
+        body {
+            padding: 20px;
+        }
+
+        .reset {
+            color: inherit;
+            border: none;
+            font: inherit;
+            outline: inherit;
+            margin-left: 10px;
+            padding: 5px;
+            width: 30px;
+            height: 30px;
+            border-radius: 8.5px;
+            background-color: rgb(240, 240, 240);
+            cursor: pointer;
+            font-size: medium;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", system-ui;
+        }
+
+        /* Tooltip text */
+        .tooltip .tooltiptext {
+            position: absolute;
+            z-index: 1;
+        }
+
+        .tooltip {
+            display: inline-block;
+        }
+
+        .tooltip .tooltiptext::after {
+            content: " ";
+            position: absolute;
+            bottom: 100%;  /* At the top of the tooltip */
+            left: 15px;
+            margin-left: -7px;
+            border-width: 7px;
+            border-style: solid;
+            border-color: transparent transparent rgb(240, 240, 240) transparent;
+        }
+    </style>
+
+    <script>
+        async function update() {
+            const res = await fetch('/term', { method: 'POST' });
+            const html = await res.text();
+            document.body.innerHTML = html;
+        }
+
+        async function assign(meta_id, debruijn, index, def) {
+            const res = await fetch('/assign', { 
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ meta_id: meta_id, debruijn: debruijn, index: index, def: def })
+            });
+            const html = await res.text();
+            document.body.innerHTML = html;
+        }
+
+        window.onload = update;
+    </script>
+</head>
+
+<body class="mono"></body>
+</html>

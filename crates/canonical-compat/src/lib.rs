@@ -3,7 +3,9 @@ use canonical_core::stats::*;
 use canonical_core::prover::Prover;
 use canonical_core::memory::S;
 pub mod ir;
+pub mod refine;
 use ir::*;
+use refine::*;
 use std::time::SystemTime;
 
 /// Manually construct a IRTerm body.
@@ -127,7 +129,9 @@ macro_rules! P {
 
 /// Entrypoint for CLI, which reads a problem from a json file. 
 /// You can create a json file using the `+debug` tactic option.
-pub fn main() {
+#[tokio::main]
+pub async fn main() {
+    
     let tb = IRType::load("lean/debug.json".to_string()).to_type(&ES::new());
     let entry = &tb.codomain.borrow().gamma.linked.as_ref().unwrap().borrow().node.entry;
     let node = Node { 
@@ -142,8 +146,10 @@ pub fn main() {
     let ty = Type(tb_ref.downgrade(), es, problem_bind.downgrade());
     let prover = Prover::new(ty, false);
 
+    refine::main(prover).await;
+
     // Print step count each second.
-    std::thread::spawn(move || {
+    /*std::thread::spawn(move || {
         let mut prev = 0;
         loop {
             std::thread::sleep(std::time::Duration::from_secs(1));
@@ -159,5 +165,5 @@ pub fn main() {
         println!("{}", now.elapsed().unwrap().as_secs_f32());
         println!("{}", IRTerm::from_term(term.base, &ES::new()));
         std::process::exit(0);
-    }, true);
+    }, true);*/
 }
