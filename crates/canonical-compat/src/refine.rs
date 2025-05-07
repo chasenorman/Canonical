@@ -6,7 +6,7 @@ use axum::{
     Router, Json,
 };
 use serde::Deserialize;
-use std::{fs, sync::{Arc, Mutex}};
+use std::{fs, iter::Once, sync::{Arc, Mutex}};
 use serde_json::json;
 use canonical_core::prover::Prover;
 use canonical_core::core::*;
@@ -17,10 +17,13 @@ use std::thread;
 use std::time::{Duration, Instant};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
-use std::sync::MutexGuard;
+use std::sync::OnceLock;
 
-pub async fn main(prover: Prover) {
-    let state = AppState { prover: Mutex::new(prover), assigned: Mutex::new(Vec::new()) };
+pub static GLOBAL_STATE: OnceLock<Arc<AppState>> = OnceLock::new();
+
+pub async fn start_server(state: AppState) {
+    GLOBAL_STATE.set(Arc::new(state));
+
     let app = Router::new()
         .route("/", get(index))
         .route("/assign", post(assign))
@@ -28,15 +31,18 @@ pub async fn main(prover: Prover) {
         .route("/reset", post(reset))
         .route("/term", post(term))
         .route("/canonical", post(canonical))
-        .with_state(Arc::new(state));
+        .with_state(GLOBAL_STATE.get().unwrap().clone());
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
 
-struct AppState {
-    prover: Mutex<Prover>,
-    assigned: Mutex<Vec<W<Meta>>>
+pub struct AppState {
+    pub prover: Mutex<Prover>,
+    pub assigned: Mutex<Vec<W<Meta>>>,
+    pub _owned_linked: Mutex<Vec<S<Linked>>>,
+    pub _owned_tb: Mutex<S<TypeBase>>,
+    pub _owned_bind: Mutex<S<Bind>>
 }
 
 #[derive(Deserialize, Debug)]
@@ -48,7 +54,7 @@ struct Assign {
 }
 
 async fn index() -> impl IntoResponse {
-    match fs::read_to_string("crates/canonical-compat/static/index.html") {
+    match fs::read_to_string("static/index.html") {
         Ok(contents) => Html(contents).into_response(),
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Failed to load index.html").into_response(),
     }

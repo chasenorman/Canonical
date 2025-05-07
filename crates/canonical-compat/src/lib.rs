@@ -7,6 +7,7 @@ pub mod refine;
 use ir::*;
 use refine::*;
 use std::time::SystemTime;
+use std::sync::Mutex;
 
 /// Manually construct a IRTerm body.
 #[allow(unused_macros)]
@@ -146,7 +147,15 @@ pub async fn main() {
     let ty = Type(tb_ref.downgrade(), es, problem_bind.downgrade());
     let prover = Prover::new(ty, false);
 
-    refine::main(prover).await;
+    let state = AppState {
+        prover: Mutex::new(prover),
+        assigned: Mutex::new(Vec::new()),
+        _owned_linked: Mutex::new(owned_linked),
+        _owned_tb: Mutex::new(tb_ref),
+        _owned_bind: Mutex::new(problem_bind)
+    };
+
+    refine::start_server(state).await;
 
     // Print step count each second.
     /*std::thread::spawn(move || {

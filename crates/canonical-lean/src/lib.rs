@@ -11,6 +11,10 @@ use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Mutex, Arc, Condvar};
 use once_cell::sync::Lazy;
+use canonical_compat::refine::*;
+use tokio::runtime::Runtime;
+use std::fs::OpenOptions;
+use std::io::Write;
 
 #[repr(C)]
 pub struct LeanObject {
@@ -535,14 +539,57 @@ pub unsafe extern "C" fn canonical(typ: *const LeanType, timeout: u64, count: us
     to_lean_result(terms, result, last_level_steps)
 }
 
-// fn print_force(s: String) -> Result<(), std::io::Error> {
-//     let mut file = OpenOptions::new()
-//         .append(true)
-//         .create(true)
-//         .open("output.txt")?;
+#[no_mangle]
+pub unsafe extern "C" fn refine(typ: *const LeanType, prog_synth: bool) -> bool {
+    let ir_type = to_ir_type(typ);
+    let tb = ir_type.to_type(&ES::new());
+    let entry = &tb.codomain.borrow().gamma.linked.as_ref().unwrap().borrow().node.entry;
+    let node = Node { 
+        entry: Entry { params_id: entry.params_id, lets_id: entry.lets_id, subst: None, 
+            context: Some(Context(tb.types.downgrade(), tb.codomain.borrow().gamma.clone(), tb.codomain.borrow().bindings.clone()))}, 
+        bindings: tb.codomain.borrow().gamma.linked.as_ref().unwrap().borrow().node.bindings.clone() 
+    };
+    let mut owned_linked = Vec::new(); // must be stored
+    let es = ES::new().append(node, &mut owned_linked);
+    let tb_ref = S::new(tb); // must be stored
+    let problem_bind = S::new(Bind { name: "proof".to_string(), irrelevant: false, value: Value::Opaque, major: false }); // must be stored
+    let ty = Type(tb_ref.downgrade(), es, problem_bind.downgrade());
+    let prover = Prover::new(ty, prog_synth);
 
-//     file.write(s.as_bytes())?;
-//     file.write(b"\n")?;
-//     file.flush()?;
-//     Ok(())
-// }
+    match GLOBAL_STATE.get() {
+        None => {
+            let state = AppState {
+                prover: Mutex::new(prover),
+                assigned: Mutex::new(Vec::new()),
+                _owned_linked: Mutex::new(owned_linked),
+                _owned_tb: Mutex::new(tb_ref),
+                _owned_bind: Mutex::new(problem_bind)
+            };
+            thread::spawn(move || { 
+                Runtime::new().unwrap().block_on(async {
+                    start_server(state).await;
+                });
+            });
+        }
+        Some(state) => {
+            *state.prover.lock().unwrap() = prover;
+            state.assigned.lock().unwrap().clear();
+            *state._owned_linked.lock().unwrap() = owned_linked;
+            *state._owned_tb.lock().unwrap() = tb_ref;
+            *state._owned_bind.lock().unwrap() = problem_bind;
+        }
+    }
+    return true;
+}
+
+fn print_force(s: String) -> Result<(), std::io::Error> {
+    let mut file = OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open("output.txt")?;
+
+    file.write(s.as_bytes())?;
+    file.write(b"\n")?;
+    file.flush()?;
+    Ok(())
+}
