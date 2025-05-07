@@ -19,6 +19,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::OnceLock;
 
+const HTML: &str = include_str!("../static/index.html");
 pub static GLOBAL_STATE: OnceLock<Arc<AppState>> = OnceLock::new();
 
 pub async fn start_server(state: AppState) {
@@ -54,10 +55,7 @@ struct Assign {
 }
 
 async fn index() -> impl IntoResponse {
-    match fs::read_to_string("static/index.html") {
-        Ok(contents) => Html(contents).into_response(),
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Failed to load index.html").into_response(),
-    }
+    Html(HTML)
 }
 
 async fn term(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {

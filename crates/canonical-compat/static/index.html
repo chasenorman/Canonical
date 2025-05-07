@@ -78,6 +78,7 @@
         }
 
         body {
+            background-color: white;
             padding: 20px;
         }
 
@@ -94,6 +95,11 @@
             cursor: pointer;
             font-size: medium;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", system-ui;
+        }
+
+        .control:disabled {
+            color: rgb(127, 127, 127);
+            cursor: default;
         }
 
         /* Tooltip text */
@@ -161,20 +167,15 @@
         async function canonical() {
             searching = true;
             document.getElementById("canonical").disabled = true;
-            setTimeout(() => {
-                if (searching) {
-                    document.getElementById("canonical").innerText = "Searching...";
-                }
-            }, 100);
             const res = await fetch('/canonical', { method: 'POST' });
             const data = await res.json();
             if (data.html) {
                 document.getElementById("term").innerHTML = data.html;
-                document.getElementById("canonical").innerText = "Canonical";
+                document.getElementById("canonical").innerText = "Search";
             } else {
                 document.getElementById("canonical").innerText = "No proof found.";
                 setTimeout(() => {
-                    document.getElementById("canonical").innerText = "Canonical";
+                    document.getElementById("canonical").innerText = "Search";
                 }, 2000);
             }
             searching = false;
@@ -189,7 +190,7 @@
     <div style="display: flex;">
         <button class="control" onclick="unassign()">〱</button>
         <button class="control" onclick="reset()">↻</button>
-        <button class="control" onclick="canonical()" id="canonical">Canonical</button>
+        <button class="control" onclick="canonical()" id="canonical">Search</button>
     </div>
     <br>
     <div id="term"></div>

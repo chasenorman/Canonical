@@ -159,7 +159,7 @@ impl IRTerm {
             stats: SearchInfo::new(),
             stats_buffer: SearchInfo::new(),
             has_rigid_equation: false,
-            branching: 0.0,
+            branching: 1.0,
             parent: None,
         }
     }

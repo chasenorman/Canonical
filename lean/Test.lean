@@ -1,3 +1,3 @@
 import Canonical
 
-example : Nat := by canonical +debug
+example : 0 + n = n := by canonical +refine +debug
