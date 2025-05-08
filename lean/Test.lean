@@ -1,3 +1,3 @@
 import Canonical
 
-example : Nat := by canonical
+example {a b c : Nat} : (a + b) + c = a + (b + c) := by canonical +refine
