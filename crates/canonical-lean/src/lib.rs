@@ -13,8 +13,8 @@ use std::sync::{Mutex, Arc, Condvar};
 use once_cell::sync::Lazy;
 use canonical_compat::refine::*;
 use tokio::runtime::Runtime;
-use std::fs::OpenOptions;
-use std::io::Write;
+// use std::fs::OpenOptions;
+// use std::io::Write;
 
 #[repr(C)]
 pub struct LeanObject {
@@ -582,14 +582,14 @@ pub unsafe extern "C" fn refine(typ: *const LeanType, prog_synth: bool) -> bool 
     return true;
 }
 
-fn print_force(s: String) -> Result<(), std::io::Error> {
-    let mut file = OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open("output.txt")?;
+// fn print_force(s: String) -> Result<(), std::io::Error> {
+//     let mut file = OpenOptions::new()
+//         .append(true)
+//         .create(true)
+//         .open("output.txt")?;
 
-    file.write(s.as_bytes())?;
-    file.write(b"\n")?;
-    file.flush()?;
-    Ok(())
-}
+//     file.write(s.as_bytes())?;
+//     file.write(b"\n")?;
+//     file.flush()?;
+//     Ok(())
+// }

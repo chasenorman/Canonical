@@ -5,9 +5,7 @@ use canonical_core::memory::S;
 pub mod ir;
 pub mod refine;
 use ir::*;
-use refine::*;
 use std::time::SystemTime;
-use std::sync::Mutex;
 
 /// Manually construct a IRTerm body.
 #[allow(unused_macros)]
@@ -147,18 +145,18 @@ pub async fn main() {
     let ty = Type(tb_ref.downgrade(), es, problem_bind.downgrade());
     let prover = Prover::new(ty, false);
 
-    let state = AppState {
-        prover: Mutex::new(prover),
-        assigned: Mutex::new(Vec::new()),
-        _owned_linked: Mutex::new(owned_linked),
-        _owned_tb: Mutex::new(tb_ref),
-        _owned_bind: Mutex::new(problem_bind)
-    };
+    // let state = AppState {
+    //     prover: Mutex::new(prover),
+    //     assigned: Mutex::new(Vec::new()),
+    //     _owned_linked: Mutex::new(owned_linked),
+    //     _owned_tb: Mutex::new(tb_ref),
+    //     _owned_bind: Mutex::new(problem_bind)
+    // };
 
-    refine::start_server(state).await;
+    // refine::start_server(state).await;
 
     // Print step count each second.
-    /*std::thread::spawn(move || {
+    std::thread::spawn(move || {
         let mut prev = 0;
         loop {
             std::thread::sleep(std::time::Duration::from_secs(1));
@@ -174,5 +172,5 @@ pub async fn main() {
         println!("{}", now.elapsed().unwrap().as_secs_f32());
         println!("{}", IRTerm::from_term(term.base, &ES::new()));
         std::process::exit(0);
-    }, true);*/
+    }, true);
 }
