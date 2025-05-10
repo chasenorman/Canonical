@@ -145,8 +145,8 @@
             update();
         }
 
-        async function unassign() {
-            const res = await fetch('/unassign', { method: 'POST' });
+        async function undo() {
+            const res = await fetch('/undo', { method: 'POST' });
             const data = await res.json();
             update();
         }
@@ -167,19 +167,35 @@
             document.getElementById("canonical").disabled = false;
         }
 
+        async function canonical1() {
+            document.getElementById("canonical1").disabled = true;
+            const meta_id = parseInt(new FormData(document.getElementById('term')).get('meta'))
+            const res = await fetch('/canonical1', { 
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ meta_id: meta_id }) 
+            });
+            const data = await res.json();
+            if (data.html) {
+                document.getElementById("term").innerHTML = data.html;
+            }
+            document.getElementById("canonical1").disabled = false;
+        }
+
         window.onload = update;
     </script>
 </head>
 
 <body class="mono">
     <div style="display: flex;">
-        <button class="control" onclick="unassign()"><svg style="vertical-align:middle;" width="19px" height="19px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <button class="control" onclick="undo()"><svg style="vertical-align:middle;" width="19px" height="19px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="15.5 20 7.5 12 15.5 4"></polyline>
           </svg></button>
         <button class="control" onclick="reset()">↻</button>
         <button class="control" onclick="canonical()" id="canonical">Search</button>
+        <button class="control" onclick="canonical1()" id="canonical1">Search₁</button>
     </div>
     <br>
-    <div id="term"></div>
+    <form id="term"></form>
 </body>
 </html>

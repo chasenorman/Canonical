@@ -5,6 +5,7 @@ use crate::stats::*;
 use rayon::prelude::*;
 use std::sync::atomic::{Ordering, AtomicUsize};
 use std::sync::Arc;
+use hashbrown::HashMap;
 
 /// The number of Rayon jobs yet to be completed.
 pub static NUM_JOBS: AtomicUsize = AtomicUsize::new(0);
@@ -12,6 +13,8 @@ pub static NUM_JOBS: AtomicUsize = AtomicUsize::new(0);
 /// A `Prover` has a metavariable for the main goal, and a flag for `program_synthesis` mode.
 pub struct Prover {
     pub meta: S<Meta>,
+    /// In case we only want to solve a subtree of `meta`, this defines the root for `next`.
+    pub next_root: W<Meta>,
     pub program_synthesis: bool
 }
 
@@ -21,7 +24,8 @@ unsafe impl Send for W<Meta> {}
 impl Prover {
     /// Creates a new Prover for the specified `Type`. 
     pub fn new(typ: Type, program_synthesis: bool) -> Self {
-        Prover { meta: S::new(Meta::new(typ)), program_synthesis }
+        let meta = S::new(Meta::new(typ));
+        Prover { next_root: meta.downgrade(), meta, program_synthesis }
     }
 
     /// Gets the current (partial) term of the prover. 
@@ -62,13 +66,12 @@ impl Prover {
 
     /// Parallelized DFS, up to an entropy of `max_entropy` and term size of `max_size`. Solutions are passed to the `callback`.
     pub fn parallel_dfs<F>(&self, max_entropy: f64, max_size: u32, callback: &F) -> DFSResult where F: Fn(Term) + Send + Sync {
-        if !
-        RUN.load(Ordering::Relaxed) {
+        if !RUN.load(Ordering::Relaxed) {
             // The task has been cancelled. 
             return DFSResult { unknown_count: 0, steps: 0, entropy: 1.0, solution_count: 0, attempts: 0, branching: 0 };
         }
         
-        let mut next_result = Meta::next(self.meta.downgrade());
+        let mut next_result = Meta::next(self.next_root.clone());
         let exceeds = next_result.exceeds(max_entropy, max_size);
         let Some(next) = next_result.next.as_mut() else {
             // No metavariables left, send the solution to the callback.
@@ -147,10 +150,10 @@ impl Prover {
             next.meta.borrow_mut().assign(assignment, equations);
 
             next.meta.borrow_mut().branching = total_weight / info.weight();
-            let result = self.try_clone(next.meta.clone());
+            let result = self.try_clone();
 
             next.meta.borrow_mut().unassign();
-            result.map(|(prover, meta)| (prover, meta, info))
+            result.map(|(prover, map)| (prover, map.get(&next.meta).unwrap().clone(), info))
         }).collect();
         NUM_JOBS.fetch_add(provers.len(), Ordering::Acquire);
 
@@ -201,9 +204,14 @@ impl Prover {
     }
 
     /// Return a clone of this prover and the corresponding translation of `meta`, with `stats_buffer` moved into `stats`.
-    pub fn try_clone(&self, meta: W<Meta>) -> Option<(Self, W<Meta>)> {
-        let prover = Prover::new(self.meta.borrow().typ.as_ref().unwrap().clone(), self.program_synthesis);
-        transfer(self.meta.downgrade(), prover.meta.downgrade(), meta).1.map(|x| (prover, x))
+    pub fn try_clone(&self) -> Option<(Self, HashMap<W<Meta>, W<Meta>>)> {
+        let mut prover = Prover::new(self.meta.borrow().typ.as_ref().unwrap().clone(), self.program_synthesis);
+        let mut map = HashMap::new();
+        if transfer(self.meta.downgrade(), prover.meta.downgrade(), &mut map) {
+            prover.next_root = map.get(&self.next_root).unwrap().clone();
+            return Some((prover, map))
+        }
+        return None
     }
 
     /// Accumulate the statistics of `other` into self. 
@@ -214,36 +222,27 @@ impl Prover {
 
 
 /// Transfer the assignment and stats from `from` to `to`. Returns the translation of `meta`, if present. 
-fn transfer(from: W<Meta>, mut to: W<Meta>, meta: W<Meta>) -> (bool, Option<W<Meta>>) {
+fn transfer(from: W<Meta>, mut to: W<Meta>, map: &mut HashMap<W<Meta>, W<Meta>>) -> bool {
     to.borrow_mut().stats.add(&from.borrow().stats);
     to.borrow_mut().stats.add(&from.borrow().stats_buffer);
     to.borrow_mut().has_rigid_equation = from.borrow().has_rigid_equation;
-    let Some(from_assn) = &from.borrow().assignment else {
-        return (true, if from == meta { Some(to) } else { None }); 
-    };
+    to.borrow_mut().branching = from.borrow().branching;
+    map.insert(from.clone(), to.clone());
+
+    let Some(from_assn) = &from.borrow().assignment else { return true; };
     
     let sub_es = to.borrow().gamma.sub_es(from_assn.head.0);
     let Some(Some((to_assn, eqns, _info))) = 
-        test(from_assn.head, sub_es.linked.unwrap(), to.clone(), true) else {
-        // Assignment did not succeed.
-        return (false, None);
-    };
+        test(from_assn.head, sub_es.linked.unwrap(), to.clone(), true) else { 
+            return false; 
+        };
     
     to.borrow_mut().assign(to_assn, eqns);
 
-    let mut meta_translated = if from == meta { Some(to.clone()) } else { None };
-    for (from_child, to_child) in from_assn.args.iter().zip(to.borrow().assignment.as_ref().unwrap().args.iter()) {
-        let result = transfer(from_child.downgrade(), to_child.downgrade(), meta.clone());
-        if !result.0 {
-            return (false, None);
-        }
-        if let Some(meta) = result.1 {
-            // Subtree found the translation.
-            meta_translated = Some(meta);
-        }
-    }
-    to.borrow_mut().branching = from.borrow().branching;
-    (true, meta_translated)
+    from_assn.args.iter().zip(to.borrow().assignment.as_ref().unwrap().args.iter()).all(
+        |(from_child, to_child)|
+        transfer(from_child.downgrade(), to_child.downgrade(), map)
+    )
 }
 
 /// Accumulate the statistics of `from` into `to`.

@@ -205,7 +205,7 @@ impl IRTerm {
 
         let tooltiptext = format!("<div class='provers tooltiptext'>{options}</div>");
         let tooltip = format!("<div class='tooltip'><span class='meta'>{varname}</span>{tooltiptext}</div>");
-        return format!("<label><input type='radio' name='meta' id='{meta_id}'>{tooltip}</label>")
+        return format!("<label><input type='radio' name='meta' id='{meta_id}' value='{meta_id}'>{tooltip}</label>")
     }
 }
 

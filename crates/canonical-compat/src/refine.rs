@@ -34,6 +34,7 @@ pub async fn start_server(state: AppState) {
         .route("/reset", post(reset))
         .route("/term", post(term))
         .route("/canonical", post(canonical))
+        .route("/canonical1", post(canonical1))
         .with_state(GLOBAL_STATE.get().unwrap().clone());
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
@@ -61,6 +62,11 @@ struct Assign {
     debruijn: u32,
     index: usize,
     def: bool
+}
+
+#[derive(Deserialize)]
+struct Solve1 {
+    meta_id: usize
 }
 
 /// Retrieve the HTML file.
@@ -133,7 +139,24 @@ async fn reset(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
 /// Attempt to complete the proof with Canonical.
 async fn canonical(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
     let prover = state.prover.lock().unwrap();
-    let term = canonical_simple(prover.try_clone(prover.meta.downgrade()).unwrap().0);
+    let term = canonical_simple(prover.try_clone().unwrap().0);
+    let html = term.map(|mut term| {
+        term.params = Vec::new();
+        term.lets = Vec::new();
+        term.to_string()
+    });
+    Json(json!({ "html": html }))
+}
+
+/// Attempt to complete only the specified subtree with Canonical.
+async fn canonical1(State(state): State<Arc<AppState>>, Json(solve1) : Json<Solve1>) -> Json<serde_json::Value> {
+    let prover = state.prover.lock().unwrap();
+    let root = find_with_id(prover.meta.downgrade(), solve1.meta_id).unwrap();
+    let (mut prover, map) = prover.try_clone().unwrap();
+    let root = map.get(&root).unwrap().clone();
+    prover.next_root = root; // TODO remember to ensure that this is returned to normal.
+
+    let term = canonical_simple(prover);
     let html = term.map(|mut term| {
         term.params = Vec::new();
         term.lets = Vec::new();
