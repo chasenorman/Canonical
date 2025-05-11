@@ -554,13 +554,12 @@ pub unsafe extern "C" fn refine(typ: *const LeanType, prog_synth: bool) -> bool 
     let tb_ref = S::new(tb); // must be stored
     let problem_bind = S::new(Bind { name: "proof".to_string(), irrelevant: false, value: Value::Opaque, major: false }); // must be stored
     let ty = Type(tb_ref.downgrade(), es, problem_bind.downgrade());
-    let prover = Prover::new(ty, prog_synth);
+    let meta = S::new(Meta::new(ty));
 
     match GLOBAL_STATE.get() {
         None => {
             let state = AppState {
-                prover: Mutex::new(prover),
-                assigned: Mutex::new(Vec::new()),
+                stack: Mutex::new(vec![ meta ]),
                 _owned_linked: Mutex::new(owned_linked),
                 _owned_tb: Mutex::new(tb_ref),
                 _owned_bind: Mutex::new(problem_bind)
@@ -572,8 +571,7 @@ pub unsafe extern "C" fn refine(typ: *const LeanType, prog_synth: bool) -> bool 
             });
         }
         Some(state) => {
-            *state.prover.lock().unwrap() = prover;
-            state.assigned.lock().unwrap().clear();
+            *state.stack.lock().unwrap() = vec![ meta ];
             *state._owned_linked.lock().unwrap() = owned_linked;
             *state._owned_tb.lock().unwrap() = tb_ref;
             *state._owned_bind.lock().unwrap() = problem_bind;

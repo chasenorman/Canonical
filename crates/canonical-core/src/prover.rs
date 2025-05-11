@@ -222,7 +222,7 @@ impl Prover {
 
 
 /// Transfer the assignment and stats from `from` to `to`. Returns the translation of `meta`, if present. 
-fn transfer(from: W<Meta>, mut to: W<Meta>, map: &mut HashMap<W<Meta>, W<Meta>>) -> bool {
+pub fn transfer(from: W<Meta>, mut to: W<Meta>, map: &mut HashMap<W<Meta>, W<Meta>>) -> bool {
     to.borrow_mut().stats.add(&from.borrow().stats);
     to.borrow_mut().stats.add(&from.borrow().stats_buffer);
     to.borrow_mut().has_rigid_equation = from.borrow().has_rigid_equation;
