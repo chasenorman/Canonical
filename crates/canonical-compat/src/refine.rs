@@ -37,6 +37,7 @@ pub async fn start_server(state: AppState) {
         .route("/term", post(term))
         .route("/canonical", post(canonical))
         .route("/canonical1", post(canonical1))
+        .route("/set", post(set))
         .with_state(GLOBAL_STATE.get().unwrap().clone());
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
@@ -45,6 +46,7 @@ pub async fn start_server(state: AppState) {
 
 pub struct AppState {
     pub stack: Mutex<Vec<S<Meta>>>,
+    pub autofill: Mutex<bool>,
 
     // For ownership purposes.
     pub _owned_linked: Mutex<Vec<S<Linked>>>,
@@ -84,7 +86,12 @@ async fn term(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
         .next
         .map(|m| m.meta.borrow() as *const Meta as usize);
 
-    return Json(json!({ "html": html, "next": next }));
+    return Json(json!({ 
+        "html": html, 
+        "next": next, 
+        "count": state.stack.lock().unwrap().len(),
+        "autofill": state.autofill.lock().unwrap().clone()
+    }));
 }
 
 pub fn try_clone(meta: W<Meta>) -> Option<(S<Meta>, HashMap<W<Meta>, W<Meta>>)> {
@@ -106,7 +113,7 @@ async fn assign(
     } else {
         Index::Param(assign.index)
     };
-    let db = DeBruijnIndex(DeBruijn(assign.debruijn), index);
+    let mut db = DeBruijnIndex(DeBruijn(assign.debruijn), index);
 
     let current = state.stack.lock().unwrap().last().unwrap().downgrade();
     let (new, map) = try_clone(current.clone()).unwrap();
@@ -117,16 +124,34 @@ async fn assign(
     )
     .unwrap()).unwrap().clone();
 
-    let (assn, eqns, _) = test(
-        db,
-        meta.borrow().gamma.sub_es(db.0).linked.unwrap(),
-        meta.clone(),
-        false,
-    )
-    .unwrap()
-    .unwrap();
+    let mut i = 0;
+    let autofill = state.autofill.lock().unwrap().clone();
 
-    meta.borrow_mut().assign(assn, eqns);
+    while i < 30 {
+        let (assn, eqns, _) = test(
+            db,
+            meta.borrow().gamma.sub_es(db.0).linked.unwrap(),
+            meta.clone(),
+            false,
+        ).unwrap().unwrap();
+
+        meta.borrow_mut().assign(assn, eqns);
+
+        if !autofill {
+            break;
+        }
+        
+        if let Some((found, found_db)) = find_autofill(new.downgrade()) {
+            meta = found;
+            db = found_db;
+        } else {
+            break;
+        }
+
+        i += 1;
+    }
+
+
     state.stack.lock().unwrap().push(new);
     Json(json!({}))
 }
@@ -150,15 +175,10 @@ async fn reset(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
 async fn canonical(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
     let meta = try_clone(state.stack.lock().unwrap().last().unwrap().downgrade()).unwrap().0;
     let prover = Prover { next_root: meta.downgrade(), meta, program_synthesis: false };
-    let term = canonical_simple(prover);
-    let html = term.map(|term| {
-        let mut ir_term = IRTerm::from_term(term.downgrade(), &ES::new());
+    if let Some(term) = canonical_simple(prover) {
         state.stack.lock().unwrap().push(term);
-        ir_term.params = Vec::new();
-        ir_term.lets = Vec::new();
-        ir_term.to_string()
-    });
-    Json(json!({ "html": html }))
+    }
+    Json(json!({}))
 }
 
 /// Attempt to complete only the specified subtree with Canonical.
@@ -168,15 +188,10 @@ async fn canonical1(State(state): State<Arc<AppState>>, Json(solve1) : Json<Solv
     let next_root = map.get(&find_with_id(current, solve1.meta_id).unwrap()).unwrap().clone();
 
     let prover = Prover { next_root, meta, program_synthesis: false };
-    let term = canonical_simple(prover);
-    let html = term.map(|term| {
-        let mut ir_term = IRTerm::from_term(term.downgrade(), &ES::new());
+    if let Some(term) = canonical_simple(prover) {
         state.stack.lock().unwrap().push(term);
-        ir_term.params = Vec::new();
-        ir_term.lets = Vec::new();
-        ir_term.to_string()
-    });
-    Json(json!({ "html": html }))
+    }
+    Json(json!({}))
 }
 
 /// Run Canonical for 1 second on `prover`, returning the term if one is found.
@@ -214,4 +229,41 @@ fn find_with_id(meta: W<Meta>, id: usize) -> Option<W<Meta>> {
             None
         }
     }
+}
+
+fn find_autofill(meta: W<Meta>) -> Option<(W<Meta>, DeBruijnIndex)> {
+    match &meta.borrow().assignment {
+        None => {
+            let domain: Vec<(DeBruijnIndex, W<Linked>)> = meta.borrow().gamma.iter().filter(|(db, linked)| {
+                test(db.clone(), linked.clone(), meta.clone(), false).is_some_and(|o| o.is_some())
+            }).collect();
+
+            if domain.len() == 1 {
+                Some((meta, domain[0].0))
+            } else {
+                None
+            }
+        }
+        Some(assignment) => {
+            for arg in assignment.args.iter() {
+                if let Some(found) = find_autofill(arg.downgrade()) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct KV {
+    key: String,
+    value: bool
+}
+
+async fn set(State(state): State<Arc<AppState>>, Json(kv) : Json<KV>) -> Json<serde_json::Value> {
+    if kv.key == "autofill" {
+        *state.autofill.lock().unwrap() = kv.value;
+    }
+    Json(json!({}))
 }

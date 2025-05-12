@@ -560,6 +560,7 @@ pub unsafe extern "C" fn refine(typ: *const LeanType, prog_synth: bool) -> bool 
         None => {
             let state = AppState {
                 stack: Mutex::new(vec![ meta ]),
+                autofill: Mutex::new(true),
                 _owned_linked: Mutex::new(owned_linked),
                 _owned_tb: Mutex::new(tb_ref),
                 _owned_bind: Mutex::new(problem_bind)
@@ -572,6 +573,7 @@ pub unsafe extern "C" fn refine(typ: *const LeanType, prog_synth: bool) -> bool 
         }
         Some(state) => {
             *state.stack.lock().unwrap() = vec![ meta ];
+            *state.autofill.lock().unwrap() = true;
             *state._owned_linked.lock().unwrap() = owned_linked;
             *state._owned_tb.lock().unwrap() = tb_ref;
             *state._owned_bind.lock().unwrap() = problem_bind;

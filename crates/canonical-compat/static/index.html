@@ -32,6 +32,7 @@
         }
 
         #done {
+            display: none;
             color: rgb(103, 166, 213);
         }
 
@@ -121,6 +122,19 @@
             border-style: solid;
             border-color: transparent transparent rgb(240, 240, 240) transparent;
         }
+
+        .centered {
+            display: flex;
+            justify-content: center;
+        }
+
+        input {
+            cursor: pointer;
+        }
+
+        label {
+            cursor: pointer;
+        }
     </style>
 
     <script>
@@ -130,9 +144,10 @@
             document.getElementById("term").innerHTML = data.html;
             if (data.next) {
                 document.getElementById(data.next.toString()).checked = true;
-            } else {
-                
             }
+            document.getElementById("done").style.display = (data.next === null) ? 'block' : 'none';
+            document.getElementById("undo").disabled = (data.count <= 1);
+            document.getElementById("autofill").checked = data.autofill;
         }
 
         async function assign(meta_id, debruijn, index, def) {
@@ -161,10 +176,8 @@
             document.getElementById("canonical").disabled = true;
             const res = await fetch('/canonical', { method: 'POST' });
             const data = await res.json();
-            if (data.html) {
-                document.getElementById("term").innerHTML = data.html;
-            }
             document.getElementById("canonical").disabled = false;
+            update();
         }
 
         async function canonical1() {
@@ -176,10 +189,18 @@
                 body: JSON.stringify({ meta_id: meta_id }) 
             });
             const data = await res.json();
-            if (data.html) {
-                document.getElementById("term").innerHTML = data.html;
-            }
             document.getElementById("canonical1").disabled = false;
+            update();
+        }
+
+        async function set(key, value) {
+            const res = await fetch('/set', { 
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ key: key, value: value }) 
+            });
+            const data = await res.json();
+            update();
         }
 
         window.onload = update;
@@ -188,14 +209,26 @@
 
 <body class="mono">
     <div style="display: flex;">
-        <button class="control" onclick="undo()"><svg style="vertical-align:middle;" width="19px" height="19px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <button class="control" onclick="undo()" id="undo"><svg style="vertical-align:middle;" width="19px" height="19px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="15.5 20 7.5 12 15.5 4"></polyline>
           </svg></button>
         <button class="control" onclick="reset()">↻</button>
         <button class="control" onclick="canonical()" id="canonical">Search</button>
         <button class="control" onclick="canonical1()" id="canonical1">Search₁</button>
+        <div class="control">
+            <input type="checkbox" id="autofill" name="autofill" style="height:15px; width:15px;">
+            <label for="autofill" style="line-height:20px;">Autofill</label>
+        </div>
     </div>
     <br>
     <form id="term"></form>
+    <div class="centered" style="padding-top: 50px;">
+        <b id='done'>Goals accomplished 🎉</b>
+    </div>
+    <script>
+        document.getElementById("autofill").addEventListener("change", async (e) => {
+          set("autofill", e.target.checked)
+        });
+    </script>
 </body>
 </html>

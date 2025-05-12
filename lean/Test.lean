@@ -1,4 +1,3 @@
-import Mathlib.Tactic
 import Canonical
 
-example : True ∧ True := by canonical +refine
+example : 0 + n = n := by canonical +refine
