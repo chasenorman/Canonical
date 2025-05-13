@@ -3,15 +3,50 @@
 <head>
     <title>Refine</title>
     <style>
+        :root {
+            --text: black;
+            --background: white;
+
+            --meta-background: rgb(242, 242, 247);
+            --meta-text: rgb(128, 128, 128);
+            --meta-background-selected: rgb(35, 122, 255);
+            --meta-text-selected: rgb(204, 228, 255);
+
+            --list-background: rgb(240, 240, 240);
+            --list-border: rgb(208, 208, 210);
+            --list-hover: rgb(202, 222, 247);
+
+            --option-background: rgb(240, 240, 240);
+            --option-disabled: rgb(127, 127, 127);
+        }
+
+        body[data-theme='dark'] {
+            --text: rgb(217, 217, 217);
+            --background: black;
+
+            --meta-background: rgb(28, 28, 30);
+            --meta-text: rgb(255, 255, 255);
+            --meta-background-selected: rgb(53, 122, 245);
+            --meta-text-selected: rgb(211, 229, 253);
+
+            --list-background: rgb(29, 31, 35);
+            --list-border: rgb(57, 55, 56);
+            --list-hover: rgb(56, 62, 72);
+
+            --option-background: rgb(29, 31, 35);
+            --option-disabled: rgb(127, 127, 127);
+        }
+
         .meta {
-            background-color: rgb(242, 242, 247);
-            color: rgb(128, 128, 128);
+            background-color: var(--meta-background);
+            color: var(--meta-text);
             border-radius: 3.5px;
             padding: 2px 2px 2px 2px;
             cursor: pointer;
         }
 
-        .mono {
+        #term {
+            line-height: 25px;
             font-family: SFMono-Regular, Menlo, Consolas, "Liberation Mono", Courier, monospace;
         }
 
@@ -27,8 +62,9 @@
         }
 
         input[type="radio"]:checked ~ .tooltip span {
-            background-color: rgb(35, 122, 255);
-            color: rgb(204, 228, 255);
+            z-index: 1;
+            background-color: var(--meta-background-selected);
+            color: var(--meta-text-selected);
         }
 
         #done {
@@ -37,14 +73,16 @@
         }
 
         .provers {
+            line-height: 20px;
             width: 200px;
-            background-color: rgb(240, 240, 240);
+            background-color: var(--list-background);
             padding: 5px;
             border-radius: 8.5px;
-            border: 1px rgb(208, 208, 210);
+            border: 1px var(--list-border) solid;
             z-index: 1;
-            margin-top: 10px;
+            margin-top: 5px;
             margin-left: -8px;
+            box-shadow: rgba(0, 0, 0, 0.05) 0px 0px 20px 5px;
         }
 
         .fail {
@@ -74,12 +112,14 @@
         }
 
         .option:hover {
-            background-color: rgb(202, 222, 247)
+            background-color: var(--list-hover)
         }
 
         body {
-            background-color: white;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", system-ui;
+            background-color: var(--background);
             padding: 20px;
+            color: var(--text);
         }
 
         .control {
@@ -91,14 +131,12 @@
             padding: 5px 10px;
             border-radius: 8.5px;
             min-width: 30px;
-            background-color: rgb(240, 240, 240);
+            background-color: var(--option-background);
             cursor: pointer;
-            font-size: medium;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", system-ui;
         }
 
         .control:disabled {
-            color: rgb(127, 127, 127);
+            color: var(--option-disabled);
             cursor: default;
         }
 
@@ -112,16 +150,16 @@
             display: inline-block;
         }
 
-        .tooltip .tooltiptext::after {
+        /* .tooltip .tooltiptext::after {
             content: " ";
             position: absolute;
-            bottom: 100%;  /* At the top of the tooltip */
+            bottom: 100%;
             left: 15px;
             margin-left: -7px;
             border-width: 7px;
             border-style: solid;
             border-color: transparent transparent rgb(240, 240, 240) transparent;
-        }
+        } */
 
         .centered {
             display: flex;
@@ -203,11 +241,25 @@
             update();
         }
 
-        window.onload = update;
+        window.addEventListener('message', (event) => {
+            // let p = document.createElement('p');
+            // p.appendChild(document.createTextNode('This is a sample paragraph.'));
+            // document.body.appendChild(p);
+            if (event.data?.type === 'theme') {
+                document.body.setAttribute('data-theme', event.data.isDark ? 'dark' : 'light');
+            }
+        });
+
+        window.onload = function() {
+            update();
+            document.getElementById("autofill").addEventListener("change", async (e) => {
+                set("autofill", e.target.checked)
+            });
+        }
     </script>
 </head>
 
-<body class="mono">
+<body>
     <div style="display: flex;">
         <button class="control" onclick="undo()" id="undo"><svg style="vertical-align:middle;" width="19px" height="19px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="15.5 20 7.5 12 15.5 4"></polyline>
@@ -225,10 +277,5 @@
     <div class="centered" style="padding-top: 50px;">
         <b id='done'>Goals accomplished 🎉</b>
     </div>
-    <script>
-        document.getElementById("autofill").addEventListener("change", async (e) => {
-          set("autofill", e.target.checked)
-        });
-    </script>
 </body>
 </html>
