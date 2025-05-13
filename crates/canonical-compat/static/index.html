@@ -5,41 +5,41 @@
     <style>
         :root {
             --text: black;
-            --background: white;
+            --background: transparent;
 
-            --meta-background: rgb(242, 242, 247);
-            --meta-text: rgb(128, 128, 128);
-            --meta-background-selected: rgb(35, 122, 255);
-            --meta-text-selected: rgb(204, 228, 255);
+            --metaBackground: rgb(242, 242, 247);
+            --metaText: rgb(128, 128, 128);
+            --metaBackgroundSelected: rgb(35, 122, 255);
+            --metaTextSelected: rgb(204, 228, 255);
 
-            --list-background: rgb(240, 240, 240);
-            --list-border: rgb(208, 208, 210);
-            --list-hover: rgb(202, 222, 247);
+            --listBackground: rgb(240, 240, 240);
+            --listBorder: rgb(208, 208, 210);
+            --listHover: rgb(202, 222, 247);
 
-            --option-background: rgb(240, 240, 240);
-            --option-disabled: rgb(127, 127, 127);
+            --optionBackground: rgb(240, 240, 240);
+            --optionDisabled: rgb(127, 127, 127);
         }
 
-        body[data-theme='dark'] {
+        /* body[data-theme='dark'] {
             --text: rgb(217, 217, 217);
             --background: black;
 
-            --meta-background: rgb(28, 28, 30);
-            --meta-text: rgb(255, 255, 255);
-            --meta-background-selected: rgb(53, 122, 245);
-            --meta-text-selected: rgb(211, 229, 253);
+            --metaBackground: rgb(28, 28, 30);
+            --metaText: rgb(255, 255, 255);
+            --metaBackgroundSelected: rgb(53, 122, 245);
+            --metaTextSelected: rgb(211, 229, 253);
 
-            --list-background: rgb(29, 31, 35);
-            --list-border: rgb(57, 55, 56);
-            --list-hover: rgb(56, 62, 72);
+            --listBackground: rgb(29, 31, 35);
+            --listBorder: rgb(57, 55, 56);
+            --listHover: rgb(56, 62, 72);
 
-            --option-background: rgb(29, 31, 35);
-            --option-disabled: rgb(127, 127, 127);
-        }
+            --optionBackground: rgb(29, 31, 35);
+            --optionDisabled: rgb(127, 127, 127);
+        } */
 
         .meta {
-            background-color: var(--meta-background);
-            color: var(--meta-text);
+            background-color: var(--metaBackground);
+            color: var(--metaText);
             border-radius: 3.5px;
             padding: 2px 2px 2px 2px;
             cursor: pointer;
@@ -63,8 +63,8 @@
 
         input[type="radio"]:checked ~ .tooltip span {
             z-index: 1;
-            background-color: var(--meta-background-selected);
-            color: var(--meta-text-selected);
+            background-color: var(--metaBackgroundSelected);
+            color: var(--metaTextSelected);
         }
 
         #done {
@@ -75,10 +75,10 @@
         .provers {
             line-height: 20px;
             width: 200px;
-            background-color: var(--list-background);
+            background-color: var(--listBackground);
             padding: 5px;
             border-radius: 8.5px;
-            border: 1px var(--list-border) solid;
+            border: 1px var(--listBorder) solid;
             z-index: 1;
             margin-top: 5px;
             margin-left: -8px;
@@ -112,7 +112,7 @@
         }
 
         .option:hover {
-            background-color: var(--list-hover)
+            background-color: var(--listHover)
         }
 
         body {
@@ -131,12 +131,12 @@
             padding: 5px 10px;
             border-radius: 8.5px;
             min-width: 30px;
-            background-color: var(--option-background);
+            background-color: var(--optionBackground);
             cursor: pointer;
         }
 
         .control:disabled {
-            color: var(--option-disabled);
+            color: var(--optionDisabled);
             cursor: default;
         }
 
@@ -242,11 +242,15 @@
         }
 
         window.addEventListener('message', (event) => {
-            // let p = document.createElement('p');
-            // p.appendChild(document.createTextNode('This is a sample paragraph.'));
-            // document.body.appendChild(p);
             if (event.data?.type === 'theme') {
                 document.body.setAttribute('data-theme', event.data.isDark ? 'dark' : 'light');
+                const root = document.documentElement;
+                for (const [key, value] of Object.entries(event.data.vars)) {
+                    root.style.setProperty(`--${key}`, value);
+                    // let p = document.createElement('p');
+                    // p.appendChild(document.createTextNode(key + ": " + value));
+                    // document.body.appendChild(p);
+                }
             }
         });
 
