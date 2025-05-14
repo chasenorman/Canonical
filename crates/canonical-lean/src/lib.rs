@@ -13,8 +13,8 @@ use std::sync::{Mutex, Arc, Condvar};
 use once_cell::sync::Lazy;
 use canonical_compat::refine::*;
 use tokio::runtime::Runtime;
-// use std::fs::OpenOptions;
-// use std::io::Write;
+use std::fs::OpenOptions;
+use std::io::Write;
 
 #[repr(C)]
 pub struct LeanObject {
@@ -156,18 +156,18 @@ fn to_option(o: *const LeanOption) -> Option<*const LeanObject> {
     }
 }
 
-// fn to_lean_option(opt: &Option<*const LeanObject>) -> *const LeanOption {
-//     unsafe {
-//         match opt {
-//             None => lean_box(0) as *const LeanOption,
-//             Some(x) => {
-//                 let o = lean_alloc_ctor(1, 1, 0) as *mut LeanOption;
-//                 (*o).val = *x;
-//                 o
-//             }
-//         }
-//     }
-// }
+fn to_lean_option(opt: &Option<*const LeanObject>) -> *const LeanOption {
+    unsafe {
+        match opt {
+            None => lean_box(0) as *const LeanOption,
+            Some(x) => {
+                let o = lean_alloc_ctor(1, 1, 0) as *mut LeanOption;
+                (*o).val = *x;
+                o
+            }
+        }
+    }
+}
 
 fn lean_alloc_ctor(tag: usize, num_objs: usize, scalar_sz: usize) -> *mut LeanCtorObject {
     assert!(tag <= 244);
@@ -580,6 +580,18 @@ pub unsafe extern "C" fn refine(typ: *const LeanType, prog_synth: bool) -> bool 
         }
     }
     return true;
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn get_refinement(_: u32) -> *const LeanOption {
+    to_lean_option(&GLOBAL_STATE.get().map(|state| {
+        to_lean_term(&IRTerm::from_term(state.stack.lock().unwrap().last().unwrap().downgrade(), &ES::new())) as *const LeanObject
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn process_id() -> u32 {
+    std::process::id()
 }
 
 // fn print_force(s: String) -> Result<(), std::io::Error> {

@@ -241,6 +241,10 @@
             update();
         }
 
+        function insert() {
+            window.parent.postMessage({ type: 'insert' }, '*');
+        }
+
         window.addEventListener('message', (event) => {
             if (event.data?.type === 'theme') {
                 document.body.setAttribute('data-theme', event.data.isDark ? 'dark' : 'light');
@@ -264,7 +268,7 @@
 </head>
 
 <body>
-    <div style="display: flex;">
+    <div style="display: flex; flex-wrap: wrap; row-gap: 1em;">
         <button class="control" onclick="undo()" id="undo"><svg style="vertical-align:middle;" width="19px" height="19px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="15.5 20 7.5 12 15.5 4"></polyline>
           </svg></button>
@@ -275,6 +279,7 @@
             <input type="checkbox" id="autofill" name="autofill" style="height:15px; width:15px;">
             <label for="autofill" style="line-height:20px;">Autofill</label>
         </div>
+        <button class="control" onclick="insert()">Insert</button>
     </div>
     <br>
     <form id="term"></form>
