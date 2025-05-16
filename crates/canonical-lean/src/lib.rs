@@ -555,28 +555,26 @@ pub unsafe extern "C" fn refine(typ: *const LeanType, prog_synth: bool) -> bool 
     let problem_bind = S::new(Bind { name: "proof".to_string(), irrelevant: false, value: Value::Opaque, major: false }); // must be stored
     let ty = Type(tb_ref.downgrade(), es, problem_bind.downgrade());
     let meta = S::new(Meta::new(ty));
+    let new_state = AppState {
+        current: meta,
+        undo: Vec::new(),
+        redo: Vec::new(),
+        autofill: true,
+        _owned_linked: owned_linked,
+        _owned_tb: tb_ref,
+        _owned_bind: problem_bind
+    };
 
     match GLOBAL_STATE.get() {
         None => {
-            let state = AppState {
-                stack: Mutex::new(vec![ meta ]),
-                autofill: Mutex::new(true),
-                _owned_linked: Mutex::new(owned_linked),
-                _owned_tb: Mutex::new(tb_ref),
-                _owned_bind: Mutex::new(problem_bind)
-            };
             thread::spawn(move || { 
                 Runtime::new().unwrap().block_on(async {
-                    start_server(state).await;
+                    start_server(new_state).await;
                 });
             });
         }
-        Some(state) => {
-            *state.stack.lock().unwrap() = vec![ meta ];
-            *state.autofill.lock().unwrap() = true;
-            *state._owned_linked.lock().unwrap() = owned_linked;
-            *state._owned_tb.lock().unwrap() = tb_ref;
-            *state._owned_bind.lock().unwrap() = problem_bind;
+        Some(mut state) => {
+            *state.lock().unwrap() = new_state;
         }
     }
     return true;
@@ -585,7 +583,7 @@ pub unsafe extern "C" fn refine(typ: *const LeanType, prog_synth: bool) -> bool 
 #[no_mangle]
 pub unsafe extern "C" fn get_refinement(_: u32) -> *const LeanOption {
     to_lean_option(&GLOBAL_STATE.get().map(|state| {
-        to_lean_term(&IRTerm::from_term(state.stack.lock().unwrap().last().unwrap().downgrade(), &ES::new())) as *const LeanObject
+        to_lean_term(&IRTerm::from_term(state.lock().unwrap().current.downgrade(), &ES::new())) as *const LeanObject
     }))
 }
 
