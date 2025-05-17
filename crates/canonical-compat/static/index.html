@@ -115,6 +115,10 @@
             background-color: var(--listHover)
         }
 
+        .option.selected {
+            background-color: var(--listHover)
+        }
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", system-ui;
             background-color: var(--background);
@@ -177,6 +181,13 @@
 
     <script>
         var radios = [];
+        var index = null;
+
+        function removeSelected() {
+            document.querySelectorAll('.option').forEach((o, _) => {
+                o.classList.remove('selected')
+            });
+        }
 
         async function update() {
             const res = await fetch('/term', { method: 'POST' });
@@ -190,6 +201,15 @@
             document.getElementById("redo").disabled = !data.redo;
             document.getElementById("autofill").checked = data.autofill;
             radios = Array.from(document.querySelectorAll('input[name="meta"]'));
+            index = null;
+            removeSelected();
+
+            document.querySelectorAll('.provers').forEach((p, _) => {
+                p.addEventListener('mouseenter', () => {
+                    index = null;
+                    removeSelected();
+                });
+            });
         }
 
         async function assign(meta_id, debruijn, index, def) {
@@ -277,14 +297,51 @@
 
         document.addEventListener('keydown', (e) => {
             if (radios.length != 0) {
-                const i = radios.findIndex(r => r.checked);
+                let i = radios.findIndex(r => r.checked);
+                let options = radios[i].parentElement.querySelectorAll('.option');
                 if (e.key === 'ArrowRight') {
-                    radios[(i + 1) % radios.length].checked = true;
+                    removeSelected();
+                    i = (i + 1 % radios.length);
+                    options = radios[i].parentElement.querySelectorAll('.option');
+                    if (index !== null) {
+                        if (options.length == 0) {
+                            index = null;
+                        } else {
+                            index = 0;
+                            options[index].classList.add('selected');
+                        }
+                    }
+                    radios[i].checked = true;
                 } else if (e.key === 'ArrowLeft') {
-                    radios[(i - 1 + radios.length) % radios.length].checked = true;
+                    removeSelected();
+                    i = (i - 1 + radios.length % radios.length);
+                    options = radios[i].parentElement.querySelectorAll('.option');
+                    if (index !== null) {
+                        if (options.length == 0) {
+                            index = null;
+                        } else {
+                            index = 0;
+                            options[index].classList.add('selected');
+                        }
+                    }
+                    radios[i].checked = true;
+                } else if (options.length != 0) {
+                    if (e.key === 'ArrowUp') {
+                        index = ((index === null) ? (options.length - 1) : ((index - 1 + options.length) % options.length));
+                        removeSelected();
+                        options[index].classList.add('selected');
+                    } else if (e.key === 'ArrowDown') {
+                        index = ((index === null) ? 0 : ((index + 1) % options.length));
+                        removeSelected();
+                        options[index].classList.add('selected');
+                    } else if (e.key === 'Enter' && index !== null) {
+                        options[index].click();
+                    }
                 }
             }
         });
+
+        
     </script>
 </head>
 

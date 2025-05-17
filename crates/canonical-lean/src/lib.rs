@@ -573,7 +573,7 @@ pub unsafe extern "C" fn refine(typ: *const LeanType, prog_synth: bool) -> bool 
                 });
             });
         }
-        Some(mut state) => {
+        Some(state) => {
             *state.lock().unwrap() = new_state;
         }
     }
