@@ -301,7 +301,7 @@
                 let options = radios[i].parentElement.querySelectorAll('.option');
                 if (e.key === 'ArrowRight') {
                     removeSelected();
-                    i = (i + 1 % radios.length);
+                    i = (i + 1) % radios.length;
                     options = radios[i].parentElement.querySelectorAll('.option');
                     if (index !== null) {
                         if (options.length == 0) {
@@ -314,7 +314,7 @@
                     radios[i].checked = true;
                 } else if (e.key === 'ArrowLeft') {
                     removeSelected();
-                    i = (i - 1 + radios.length % radios.length);
+                    i = (i - 1 + radios.length) % radios.length;
                     options = radios[i].parentElement.querySelectorAll('.option');
                     if (index !== null) {
                         if (options.length == 0) {
