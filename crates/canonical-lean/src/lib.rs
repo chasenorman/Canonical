@@ -13,8 +13,8 @@ use std::sync::{Mutex, Arc, Condvar};
 use once_cell::sync::Lazy;
 use canonical_compat::refine::*;
 use tokio::runtime::Runtime;
-use std::fs::OpenOptions;
-use std::io::Write;
+// use std::fs::OpenOptions;
+// use std::io::Write;
 
 #[repr(C)]
 pub struct LeanObject {
@@ -156,18 +156,18 @@ fn to_option(o: *const LeanOption) -> Option<*const LeanObject> {
     }
 }
 
-fn to_lean_option(opt: &Option<*const LeanObject>) -> *const LeanOption {
-    unsafe {
-        match opt {
-            None => lean_box(0) as *const LeanOption,
-            Some(x) => {
-                let o = lean_alloc_ctor(1, 1, 0) as *mut LeanOption;
-                (*o).val = *x;
-                o
-            }
-        }
-    }
-}
+// fn to_lean_option(opt: &Option<*const LeanObject>) -> *const LeanOption {
+//     unsafe {
+//         match opt {
+//             None => lean_box(0) as *const LeanOption,
+//             Some(x) => {
+//                 let o = lean_alloc_ctor(1, 1, 0) as *mut LeanOption;
+//                 (*o).val = *x;
+//                 o
+//             }
+//         }
+//     }
+// }
 
 fn lean_alloc_ctor(tag: usize, num_objs: usize, scalar_sz: usize) -> *mut LeanCtorObject {
     assert!(tag <= 244);
@@ -568,8 +568,10 @@ pub unsafe extern "C" fn canonical(typ: *const LeanType, timeout: u64, count: us
     lean_io_result_mk_ok(to_lean_result(terms, result, last_level_steps) as *const LeanObject)
 }
 
+
+/// `refine` in Lean.
 #[no_mangle]
-pub unsafe extern "C" fn refine(typ: *const LeanType, prog_synth: bool) -> *const LeanResult {
+pub unsafe extern "C" fn refine(typ: *const LeanType, _prog_synth: bool) -> *const LeanResult {
     let ir_type = to_ir_type(typ);
     let tb = ir_type.to_type(&ES::new());
     let entry = &tb.codomain.borrow().gamma.linked.as_ref().unwrap().borrow().node.entry;
@@ -609,6 +611,7 @@ pub unsafe extern "C" fn refine(typ: *const LeanType, prog_synth: bool) -> *cons
     return lean_io_result_mk_ok(lean_box(0));
 }
 
+/// `getRefinement` in Lean.
 #[no_mangle]
 pub unsafe extern "C" fn get_refinement() -> *const LeanResult {
     match GLOBAL_STATE.get() {

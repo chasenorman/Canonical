@@ -130,7 +130,6 @@ macro_rules! P {
 /// You can create a json file using the `+debug` tactic option.
 #[tokio::main]
 pub async fn main() {
-    
     let tb = IRType::load("lean/debug.json".to_string()).to_type(&ES::new());
     let entry = &tb.codomain.borrow().gamma.linked.as_ref().unwrap().borrow().node.entry;
     let node = Node { 
@@ -144,16 +143,6 @@ pub async fn main() {
     let problem_bind = S::new(Bind { name: "proof".to_string(), irrelevant: false, value: Value::Opaque, major: false });
     let ty = Type(tb_ref.downgrade(), es, problem_bind.downgrade());
     let prover = Prover::new(ty, false);
-
-    // let state = AppState {
-    //     prover: Mutex::new(prover),
-    //     assigned: Mutex::new(Vec::new()),
-    //     _owned_linked: Mutex::new(owned_linked),
-    //     _owned_tb: Mutex::new(tb_ref),
-    //     _owned_bind: Mutex::new(problem_bind)
-    // };
-
-    // refine::start_server(state).await;
 
     // Print step count each second.
     std::thread::spawn(move || {

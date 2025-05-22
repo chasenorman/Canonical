@@ -203,15 +203,11 @@ impl Prover {
         acc
     }
 
-    /// Return a clone of this prover and the corresponding translation of `meta`, with `stats_buffer` moved into `stats`.
+    /// Return a clone of this prover and a map of metavariables between this and the new clone, with `stats_buffer` moved into `stats`.
     pub fn try_clone(&self) -> Option<(Self, HashMap<W<Meta>, W<Meta>>)> {
-        let mut prover = Prover::new(self.meta.borrow().typ.as_ref().unwrap().clone(), self.program_synthesis);
-        let mut map = HashMap::new();
-        if transfer(self.meta.downgrade(), prover.meta.downgrade(), &mut map) {
-            prover.next_root = map.get(&self.next_root).unwrap().clone();
-            return Some((prover, map))
-        }
-        return None
+        Meta::try_clone(self.meta.downgrade()).map(|(meta, map)| {
+            (Prover { meta, next_root: map.get(&self.next_root).unwrap().clone(), program_synthesis: self.program_synthesis }, map)
+        })
     }
 
     /// Accumulate the statistics of `other` into self. 
@@ -254,5 +250,17 @@ fn accumulate_stats(mut to: W<Meta>, from: W<Meta>) {
         .zip(from.borrow().assignment.as_ref().unwrap().args.iter());
     for (to_child, from_child) in zipped_args {
         accumulate_stats(to_child.downgrade(), from_child.downgrade());
+    }
+}
+
+impl Meta {
+    /// Return a clone of this metvariable and a map of metavariables between this and the new clone, with `stats_buffer` moved into `stats`.
+    pub fn try_clone(meta: W<Meta>) -> Option<(S<Meta>, HashMap<W<Meta>, W<Meta>>)> {
+        let new = S::new(Meta::new(meta.borrow().typ.as_ref().unwrap().clone()));
+        let mut map = HashMap::new();
+        if transfer(meta, new.downgrade(), &mut map) {
+            return Some((new, map))
+        }
+        return None
     }
 }
