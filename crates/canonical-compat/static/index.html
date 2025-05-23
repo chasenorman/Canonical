@@ -3,15 +3,50 @@
 <head>
     <title>Refine</title>
     <style>
+        :root {
+            --text: black;
+            --background: transparent;
+
+            --metaBackground: rgb(242, 242, 247);
+            --metaText: rgb(128, 128, 128);
+            --metaBackgroundSelected: rgb(35, 122, 255);
+            --metaTextSelected: rgb(204, 228, 255);
+
+            --listBackground: rgb(240, 240, 240);
+            --listBorder: rgb(208, 208, 210);
+            --listHover: rgb(202, 222, 247);
+
+            --optionBackground: rgb(240, 240, 240);
+            --optionDisabled: rgb(127, 127, 127);
+        }
+
+        /* body[data-theme='dark'] {
+            --text: rgb(217, 217, 217);
+            --background: black;
+
+            --metaBackground: rgb(28, 28, 30);
+            --metaText: rgb(255, 255, 255);
+            --metaBackgroundSelected: rgb(53, 122, 245);
+            --metaTextSelected: rgb(211, 229, 253);
+
+            --listBackground: rgb(29, 31, 35);
+            --listBorder: rgb(57, 55, 56);
+            --listHover: rgb(56, 62, 72);
+
+            --optionBackground: rgb(29, 31, 35);
+            --optionDisabled: rgb(127, 127, 127);
+        } */
+
         .meta {
-            background-color: rgb(242, 242, 247);
-            color: rgb(128, 128, 128);
+            background-color: var(--metaBackground);
+            color: var(--metaText);
             border-radius: 3.5px;
             padding: 2px 2px 2px 2px;
             cursor: pointer;
         }
 
-        .mono {
+        #term {
+            line-height: 25px;
             font-family: SFMono-Regular, Menlo, Consolas, "Liberation Mono", Courier, monospace;
         }
 
@@ -27,23 +62,27 @@
         }
 
         input[type="radio"]:checked ~ .tooltip span {
-            background-color: rgb(35, 122, 255);
-            color: rgb(204, 228, 255);
+            z-index: 1;
+            background-color: var(--metaBackgroundSelected);
+            color: var(--metaTextSelected);
         }
 
         #done {
+            display: none;
             color: rgb(103, 166, 213);
         }
 
         .provers {
+            line-height: 20px;
             width: 200px;
-            background-color: rgb(240, 240, 240);
+            background-color: var(--listBackground);
             padding: 5px;
             border-radius: 8.5px;
-            border: 1px rgb(208, 208, 210);
+            border: 1px var(--listBorder) solid;
             z-index: 1;
-            margin-top: 10px;
+            margin-top: 5px;
             margin-left: -8px;
+            box-shadow: rgba(0, 0, 0, 0.05) 0px 0px 20px 5px;
         }
 
         .fail {
@@ -73,12 +112,18 @@
         }
 
         .option:hover {
-            background-color: rgb(202, 222, 247)
+            background-color: var(--listHover)
+        }
+
+        .option.selected {
+            background-color: var(--listHover)
         }
 
         body {
-            background-color: white;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", system-ui;
+            background-color: var(--background);
             padding: 20px;
+            color: var(--text);
         }
 
         .control {
@@ -90,14 +135,12 @@
             padding: 5px 10px;
             border-radius: 8.5px;
             min-width: 30px;
-            background-color: rgb(240, 240, 240);
+            background-color: var(--optionBackground);
             cursor: pointer;
-            font-size: medium;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", system-ui;
         }
 
         .control:disabled {
-            color: rgb(127, 127, 127);
+            color: var(--optionDisabled);
             cursor: default;
         }
 
@@ -111,28 +154,62 @@
             display: inline-block;
         }
 
-        .tooltip .tooltiptext::after {
+        /* .tooltip .tooltiptext::after {
             content: " ";
             position: absolute;
-            bottom: 100%;  /* At the top of the tooltip */
+            bottom: 100%;
             left: 15px;
             margin-left: -7px;
             border-width: 7px;
             border-style: solid;
             border-color: transparent transparent rgb(240, 240, 240) transparent;
+        } */
+
+        .centered {
+            display: flex;
+            justify-content: center;
+        }
+
+        input {
+            cursor: pointer;
+        }
+
+        label {
+            cursor: pointer;
         }
     </style>
 
     <script>
+        var radios = [];
+        var index = null;
+
+        function removeSelected() {
+            document.querySelectorAll('.option').forEach((o, _) => {
+                o.classList.remove('selected')
+            });
+        }
+
         async function update() {
             const res = await fetch('/term', { method: 'POST' });
             const data = await res.json();
             document.getElementById("term").innerHTML = data.html;
             if (data.next) {
                 document.getElementById(data.next.toString()).checked = true;
-            } else {
-                
             }
+            document.getElementById("done").style.display = (data.next === null) ? 'block' : 'none';
+            document.getElementById("undo").disabled = !data.undo;
+            document.getElementById("redo").disabled = !data.redo;
+            document.getElementById("autofill").checked = data.autofill;
+            radios = Array.from(document.querySelectorAll('input[name="meta"]'));
+            index = null;
+            removeSelected();
+
+            document.querySelectorAll('.provers').forEach((p, _) => {
+                p.addEventListener('mouseenter', () => {
+                    index = null;
+                    removeSelected();
+                });
+            });
         }
 
         async function assign(meta_id, debruijn, index, def) {
@@ -145,8 +222,14 @@
             update();
         }
 
-        async function unassign() {
-            const res = await fetch('/unassign', { method: 'POST' });
+        async function undo() {
+            const res = await fetch('/undo', { method: 'POST' });
+            const data = await res.json();
+            update();
+        }
+
+        async function redo() {
+            const res = await fetch('/redo', { method: 'POST' });
             const data = await res.json();
             update();
         }
@@ -161,25 +244,128 @@
             document.getElementById("canonical").disabled = true;
             const res = await fetch('/canonical', { method: 'POST' });
             const data = await res.json();
-            if (data.html) {
-                document.getElementById("term").innerHTML = data.html;
-            }
             document.getElementById("canonical").disabled = false;
+            update();
         }
 
-        window.onload = update;
+        async function canonical1() {
+            document.getElementById("canonical1").disabled = true;
+            const meta_id = parseInt(new FormData(document.getElementById('term')).get('meta'))
+            const res = await fetch('/canonical1', { 
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ meta_id: meta_id }) 
+            });
+            const data = await res.json();
+            document.getElementById("canonical1").disabled = false;
+            update();
+        }
+
+        async function set(key, value) {
+            const res = await fetch('/set', { 
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ key: key, value: value }) 
+            });
+            const data = await res.json();
+            update();
+        }
+
+        function insert() {
+            window.parent.postMessage({ type: 'insert' }, '*');
+        }
+
+        window.addEventListener('message', (event) => {
+            if (event.data?.type === 'theme') {
+                document.body.setAttribute('data-theme', event.data.isDark ? 'dark' : 'light');
+                const root = document.documentElement;
+                for (const [key, value] of Object.entries(event.data.vars)) {
+                    root.style.setProperty(`--${key}`, value);
+                    // let p = document.createElement('p');
+                    // p.appendChild(document.createTextNode(key + ": " + value));
+                    // document.body.appendChild(p);
+                }
+            }
+        });
+
+        window.onload = function() {
+            update();
+            document.getElementById("autofill").addEventListener("change", async (e) => {
+                set("autofill", e.target.checked)
+            });
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (radios.length != 0) {
+                let i = radios.findIndex(r => r.checked);
+                let options = radios[i].parentElement.querySelectorAll('.option');
+                if (e.key === 'ArrowRight') {
+                    removeSelected();
+                    i = (i + 1) % radios.length;
+                    options = radios[i].parentElement.querySelectorAll('.option');
+                    if (index !== null) {
+                        if (options.length == 0) {
+                            index = null;
+                        } else {
+                            index = 0;
+                            options[index].classList.add('selected');
+                        }
+                    }
+                    radios[i].checked = true;
+                } else if (e.key === 'ArrowLeft') {
+                    removeSelected();
+                    i = (i - 1 + radios.length) % radios.length;
+                    options = radios[i].parentElement.querySelectorAll('.option');
+                    if (index !== null) {
+                        if (options.length == 0) {
+                            index = null;
+                        } else {
+                            index = 0;
+                            options[index].classList.add('selected');
+                        }
+                    }
+                    radios[i].checked = true;
+                } else if (options.length != 0) {
+                    if (e.key === 'ArrowUp') {
+                        index = ((index === null) ? (options.length - 1) : ((index - 1 + options.length) % options.length));
+                        removeSelected();
+                        options[index].classList.add('selected');
+                    } else if (e.key === 'ArrowDown') {
+                        index = ((index === null) ? 0 : ((index + 1) % options.length));
+                        removeSelected();
+                        options[index].classList.add('selected');
+                    } else if (e.key === 'Enter' && index !== null) {
+                        options[index].click();
+                    }
+                }
+            }
+        });
+
+        
     </script>
 </head>
 
-<body class="mono">
-    <div style="display: flex;">
-        <button class="control" onclick="unassign()"><svg style="vertical-align:middle;" width="19px" height="19px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+<body>
+    <div style="display: flex; flex-wrap: wrap; row-gap: 1em;">
+        <button class="control" onclick="undo()" id="undo"><svg style="vertical-align:middle;" width="19px" height="19px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="15.5 20 7.5 12 15.5 4"></polyline>
+          </svg></button>
+        <button class="control" onclick="redo()" id="redo"><svg style="vertical-align:middle;" width="19px" height="19px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="8.5 20 16.5 12 8.5 4"></polyline>
           </svg></button>
         <button class="control" onclick="reset()">↻</button>
         <button class="control" onclick="canonical()" id="canonical">Search</button>
+        <button class="control" onclick="canonical1()" id="canonical1">Search₁</button>
+        <div class="control">
+            <input type="checkbox" id="autofill" name="autofill" style="height:15px; width:15px;">
+            <label for="autofill" style="line-height:20px;">Autofill</label>
+        </div>
+        <button class="control" onclick="insert()">Insert</button>
     </div>
     <br>
-    <div id="term"></div>
+    <form id="term"></form>
+    <div class="centered" style="padding-top: 50px;">
+        <b id='done'>Goals accomplished 🎉</b>
+    </div>
 </body>
 </html>

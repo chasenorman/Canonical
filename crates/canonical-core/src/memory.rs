@@ -1,4 +1,5 @@
 use std::ops::{RangeFrom, RangeTo};
+use std::hash::Hash;
 
 /// Owned (unique and strong) reference to `data`.
 pub struct S<T> {
@@ -130,3 +131,9 @@ impl<T> PartialEq for W<T> {
 impl<T> Eq for W<T> {}
 
 unsafe impl<T> Send for S<T> {}
+
+impl<T> Hash for W<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.ptr.hash(state);
+    }
+}
