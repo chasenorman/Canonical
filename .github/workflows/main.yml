@@ -1,6 +1,11 @@
 name: Build Canonical for Lean
 
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag'
+        required: true
 
 jobs:
   build:
@@ -60,6 +65,6 @@ jobs:
         run: cargo build -p canonical_lean --release
 
       - name: Upload built library
-        run: gh release upload lean "${{ matrix.lib_path }}"
+        run: gh release upload ${{ github.event.inputs.tag }} "${{ matrix.lib_path }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
