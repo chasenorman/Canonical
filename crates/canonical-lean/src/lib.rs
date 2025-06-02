@@ -11,6 +11,10 @@ use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Mutex, Arc, Condvar};
 use once_cell::sync::Lazy;
+use canonical_compat::refine::*;
+use tokio::runtime::Runtime;
+// use std::fs::OpenOptions;
+// use std::io::Write;
 
 #[repr(C)]
 pub struct LeanObject {
@@ -414,6 +418,34 @@ fn to_lean_result(terms: *const LeanArrayObject, result: DFSResult, last_level_s
     }
 }
 
+// static inline lean_obj_res lean_io_result_mk_ok(lean_obj_arg a) {
+//     lean_object * r = lean_alloc_ctor(0, 2, 0);
+//     lean_ctor_set(r, 0, a);
+//     lean_ctor_set(r, 1, lean_box(0));
+//     return r;
+// }
+#[repr(C)]
+pub struct LeanResult {
+    m_header: LeanObject,
+    first: *const LeanObject,
+    second: *const LeanObject
+}
+
+
+unsafe fn lean_io_result_mk_ok(a: *const LeanObject) -> *const LeanResult {
+    let r = lean_alloc_ctor(0, 2, 0) as *mut LeanResult;
+    (*r).first = a;
+    (*r).second = lean_box(0);
+    return r;
+}
+
+unsafe fn lean_io_result_mk_error(e: *const LeanObject) -> *const LeanResult {
+    let r = lean_alloc_ctor(1, 2, 0) as *mut LeanResult;
+    (*r).first = e;
+    (*r).second = lean_box(0);
+    return r;
+}
+
 extern "C" {
     fn lean_mk_string(s: *const i8) -> *const LeanStringObject;
     fn lean_alloc_object(sz: usize) -> *const LeanObject;
@@ -421,6 +453,7 @@ extern "C" {
     fn lean_io_check_canceled_core() -> bool;
     fn mi_malloc_small(sz: usize) -> *mut c_void;
     fn lean_internal_panic_out_of_memory();
+    fn lean_mk_io_user_error(str: *const LeanStringObject) -> *const LeanObject;
     // fn lean_dbg_trace(s: *const LeanStringObject, f: *const LeanObject);
 }
 
@@ -498,7 +531,7 @@ static INSTANCE: Lazy<Lock> = Lazy::new(|| Lock::new());
 
 /// `canonical` in Lean.
 #[no_mangle]
-pub unsafe extern "C" fn canonical(typ: *const LeanType, timeout: u64, count: usize, prog_synth: bool, debug: bool) -> *const CanonicalResult {
+pub unsafe extern "C" fn canonical(typ: *const LeanType, timeout: u64, count: usize, prog_synth: bool, debug: bool) -> *const LeanResult {
     INSTANCE.lock();
     let ir_type = to_ir_type(typ);
     if debug {
@@ -532,7 +565,70 @@ pub unsafe extern "C" fn canonical(typ: *const LeanType, timeout: u64, count: us
     let terms = to_lean_array(&v.iter().map(|x| to_lean_term(x) as *const LeanObject).collect());
 
     INSTANCE.unlock();
-    to_lean_result(terms, result, last_level_steps)
+    lean_io_result_mk_ok(to_lean_result(terms, result, last_level_steps) as *const LeanObject)
+}
+
+
+/// `refine` in Lean.
+#[no_mangle]
+pub unsafe extern "C" fn refine(typ: *const LeanType, _prog_synth: bool) -> *const LeanResult {
+    let ir_type = to_ir_type(typ);
+    let tb = ir_type.to_type(&ES::new());
+    let entry = &tb.codomain.borrow().gamma.linked.as_ref().unwrap().borrow().node.entry;
+    let node = Node { 
+        entry: Entry { params_id: entry.params_id, lets_id: entry.lets_id, subst: None, 
+            context: Some(Context(tb.types.downgrade(), tb.codomain.borrow().gamma.clone(), tb.codomain.borrow().bindings.clone()))}, 
+        bindings: tb.codomain.borrow().gamma.linked.as_ref().unwrap().borrow().node.bindings.clone() 
+    };
+    let mut owned_linked = Vec::new(); // must be stored
+    let es = ES::new().append(node, &mut owned_linked);
+    let tb_ref = S::new(tb); // must be stored
+    let problem_bind = S::new(Bind { name: "proof".to_string(), irrelevant: false, value: Value::Opaque, major: false }); // must be stored
+    let ty = Type(tb_ref.downgrade(), es, problem_bind.downgrade());
+    let meta = S::new(Meta::new(ty));
+    let new_state = AppState {
+        current: meta,
+        undo: Vec::new(),
+        redo: Vec::new(),
+        autofill: true,
+        _owned_linked: owned_linked,
+        _owned_tb: tb_ref,
+        _owned_bind: problem_bind
+    };
+
+    match GLOBAL_STATE.get() {
+        None => {
+            thread::spawn(move || { 
+                Runtime::new().unwrap().block_on(async {
+                    start_server(new_state).await;
+                });
+            });
+        }
+        Some(state) => {
+            *state.lock().unwrap() = new_state;
+        }
+    }
+    return lean_io_result_mk_ok(lean_box(0));
+}
+
+/// `getRefinement` in Lean.
+#[no_mangle]
+pub unsafe extern "C" fn get_refinement() -> *const LeanResult {
+    match GLOBAL_STATE.get() {
+        None => {
+            lean_io_result_mk_error(lean_mk_io_user_error(to_lean_string("No refine server running!")))
+        }
+        Some(state) => {
+            lean_io_result_mk_ok(
+                to_lean_term(
+                    &IRTerm::from_term(
+                        state.lock().unwrap().current.downgrade(), 
+                        &ES::new()
+                    )
+                ) as *const LeanObject
+            )
+        }
+    }
 }
 
 // fn print_force(s: String) -> Result<(), std::io::Error> {

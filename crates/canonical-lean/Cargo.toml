@@ -7,6 +7,7 @@ edition.workspace = true
 canonical-compat = { path = "../canonical-compat" }
 canonical-core = { path = "../canonical-core" }
 once_cell = "1.21.1"
+tokio = { version = "1.44.2", features = ["full"] }
 
 [lib]
 crate-type = ["cdylib"]

@@ -3,6 +3,7 @@ use canonical_core::stats::*;
 use canonical_core::prover::Prover;
 use canonical_core::memory::S;
 pub mod ir;
+pub mod refine;
 use ir::*;
 use std::time::SystemTime;
 
@@ -127,7 +128,8 @@ macro_rules! P {
 
 /// Entrypoint for CLI, which reads a problem from a json file. 
 /// You can create a json file using the `+debug` tactic option.
-pub fn main() {
+#[tokio::main]
+pub async fn main() {
     let tb = IRType::load("lean/debug.json".to_string()).to_type(&ES::new());
     let entry = &tb.codomain.borrow().gamma.linked.as_ref().unwrap().borrow().node.entry;
     let node = Node { 
