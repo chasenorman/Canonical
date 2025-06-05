@@ -20,7 +20,7 @@ macro_rules! t {
         }
     };
     ($s : expr, $($arg:expr ),*) => {
-        let mut args = Vec::new();
+        {let mut args = Vec::new();
         $(
             args.push($arg);
         )*
@@ -29,7 +29,7 @@ macro_rules! t {
             lets: vec![],
             head: $s.to_string(),
             args
-        }
+        }}
     };
 }
 
@@ -165,28 +165,47 @@ pub fn main() {
 
     // let test = P!([("A", T!()), ("B", T!()), ("f", P!([("x", T!("A"))], "B")), ("a", T!("A"))], "B");
     // let test = P!([("Type", T!()), ("A", T!("Type")), ("B", T!("Type")), ("f", P!([("X", T!("Type")), ("x", T!("X"))], "A")), ("b", T!("B"))], "A");
-    let x = t!("x");
-    let zero = t!("0");
-    let from = IRTerm {
-        params: vec![],
-        lets: vec![],
-        head: "+".to_string(),
-        args: vec![x, zero]
-    };
+    
+    let add_zero_lhs = t!("+", t!("x"), t!("0"));
+    let add_zero_rhs = t!("x");
 
+    let add_succ_lhs = t!("+", t!("x"), t!("S", t!("y")));
+    let add_succ_rhs = t!("S", t!("+", t!("x"), t!("y")));
 
-    let to = t!("x");
+    let zero_add_lhs = t!("+", t!("0"), t!("x"));
+    let zero_add_rhs = t!("x");
+
+    let succ_add_lhs = t!("+", t!("S", t!("x")), t!("y"));
+    let succ_add_rhs = t!("S", t!("+", t!("x"), t!("y")));
+
+    let add_assoc_lhs = t!("+", t!("x"), t!("+", t!("y"), t!("z")));
+    let add_assoc_rhs = t!("+", t!("+", t!("x"), t!("y")), t!("z"));
 
     let ir_term = IRTerm {
-        params: vec![],
-        lets: vec![IRLet { var: IRVar { name: "0".to_string(), irrelevant: false }, rules: vec![], value: IRValue::Opaque },
-                    IRLet { var: IRVar { name: "S".to_string(), irrelevant: false }, rules: vec![], value: IRValue::Opaque },
-                    IRLet { var: IRVar { name: "+".to_string(), irrelevant: false }, rules: vec![IRRule { lhs: from, rhs: to }], value: IRValue::Opaque }],
-        head: "0".to_string(),
-        args: vec![]
+        params: vec![
+            IRVar { name: "a".to_string(), irrelevant: false },
+            IRVar { name: "b".to_string(), irrelevant: false },
+            IRVar { name: "c".to_string(), irrelevant: false }
+        ],
+        lets: vec![
+            IRLet { var: IRVar { name: "0".to_string(), irrelevant: false }, rules: vec![], value: IRValue::Opaque },
+            IRLet { var: IRVar { name: "S".to_string(), irrelevant: false }, rules: vec![], value: IRValue::Opaque },
+            IRLet { var: IRVar { name: "+".to_string(), irrelevant: false }, rules: vec!
+                [
+                    IRRule { lhs: add_zero_lhs, rhs: add_zero_rhs }, 
+                    IRRule { lhs: add_succ_lhs, rhs: add_succ_rhs },
+                    IRRule { lhs: zero_add_lhs, rhs: zero_add_rhs },
+                    IRRule { lhs: succ_add_lhs, rhs: succ_add_rhs },
+                    IRRule { lhs: add_assoc_lhs, rhs: add_assoc_rhs }
+                ], 
+                value: IRValue::Opaque }
+            ],
+        head: "+".to_string(),
+        args: vec![t!("a"), t!("S", t!("b"))]
     };
+    
+    let term = S::new(ir_term.to_term(&ES::new()));
+    let rules = &term.borrow().bindings.borrow().lets[2].borrow().rules;
 
-    let term = ir_term.to_term(&ES::new());
-
-    println!("{}", term.bindings.borrow().lets[2].borrow().rules[0])
+    println!("{}", Term { es: term.borrow().gamma.clone(), base: term.downgrade()}.reduce(rules, &mut Vec::new()).is_some() );
 }

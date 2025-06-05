@@ -1,12 +1,15 @@
+use thread_local_collect::tlm::channeled::Control;
 use Index::*;
 use crate::memory::{S, W, WVec};
+use std::num::NonZero;
 use std::sync::atomic::{AtomicU64, Ordering};
 use string_interner::DefaultSymbol;
 use std::iter;
 use crate::stats::SearchInfo;
 use mimalloc::MiMalloc;
 use std::cell::RefCell;
-use std::ops::Range;
+use std::ops::{ControlFlow, Range};
+use core::slice::Iter;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -471,6 +474,11 @@ pub struct Term {
 /// We allow both the variable and metavariable to be present for when we are stuck on the major argument of a recursor.
 pub struct WHNF(pub Term, pub Option<Var>, pub Option<W<Meta>>);
 
+pub struct Matcher<'a> {
+    pub pattern: Iter<'a, Option<Symbol>>,
+    pub replacement: Term
+}
+
 impl Term {
     /// Get the `i`th argument, applied with `entry`.
     fn arg(&self, i: usize, entry: Entry, owned_linked: &mut Vec<S<Linked>>) -> Term {
@@ -505,6 +513,57 @@ impl Term {
             },
             None => WHNF(self.clone(), None, Some(self.base.clone()))
         }
+    }
+}
+
+impl <'a> Term {
+    fn _reduce(&self, patterns: &mut Vec<Matcher<'a>>, owned_linked: &mut Vec<S<Linked>>) -> ControlFlow<Option<Term>> {
+        let mut wildcards = Vec::new();
+        
+        let whnf = self.whnf(owned_linked, false);
+        let Some(var) = &whnf.1 else {
+            return ControlFlow::Break(None);
+            // TODO metavariable
+        };
+        let mut ordering: Option<&Vec<usize>> = None;
+        
+        for i in (0..patterns.len()).rev() {
+            let matcher = &mut patterns[i];
+            if let Some(symbol) = matcher.pattern.next().unwrap() {
+                if symbol.bind.eq(&var.bind) {
+                    ordering = Some(&symbol.children);
+                    if matcher.pattern.len() == 0 {
+                        return ControlFlow::Break(Some(matcher.replacement.clone()));
+                    }
+                    // TODO entries
+                } else {
+                    patterns.remove(i);
+                }
+            }  else {
+                wildcards.push(patterns.remove(i));
+            }
+        }
+
+        if let Some(ordering) = ordering {
+            for &i in ordering {
+                let arg = whnf.0.arg(i, Entry::vars(var.entry_id), owned_linked);
+                arg._reduce(patterns, owned_linked)?;
+            }
+        } else {
+            return ControlFlow::Break(None); // TODO 
+        }
+
+        patterns.append(&mut wildcards);
+        ControlFlow::Continue(())
+    }
+
+    pub fn reduce(&self, patterns: &Vec<Rule>, owned_linked: &mut Vec<S<Linked>>) -> Option<Term> {
+        let mut matchers: Vec<Matcher> = patterns.iter().map(|rule| Matcher {
+            pattern: rule.pattern.iter(),
+            replacement: Term { base: rule.replacement.downgrade(), es: self.es.clone() }
+        }).collect();
+
+        self._reduce(&mut matchers, owned_linked).break_value().unwrap()
     }
 }
 

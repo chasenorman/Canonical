@@ -79,7 +79,7 @@ impl fmt::Display for Type {
     }
 }
 
-impl fmt::Display for Rule {
+impl fmt::Debug for Rule {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for symbol in self.pattern.iter() {
             if let Some(symbol) = symbol {
@@ -91,8 +91,6 @@ impl fmt::Display for Rule {
                     }
                     write!(f, "] ")?;
                 }
-
-
             } else {
                 write!(f, "* ")?;
             }
