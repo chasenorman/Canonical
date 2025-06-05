@@ -518,12 +518,13 @@ impl Term {
 
 impl <'a> Term {
     fn _reduce(&self, patterns: &mut Vec<Matcher<'a>>, owned_linked: &mut Vec<S<Linked>>) -> ControlFlow<Option<Term>> {
+        // TODO return if empty?
         let mut wildcards = Vec::new();
         
         let whnf = self.whnf(owned_linked, false);
         let Some(var) = &whnf.1 else {
             return ControlFlow::Break(None);
-            // TODO metavariable
+            // TODO metavariable, only the wildcards get through.
         };
         let mut ordering: Option<&Vec<usize>> = None;
         
@@ -532,10 +533,15 @@ impl <'a> Term {
             if let Some(symbol) = matcher.pattern.next().unwrap() {
                 if symbol.bind.eq(&var.bind) {
                     ordering = Some(&symbol.children);
+                    for entry in symbol.entries.iter() {
+                        matcher.replacement.es = matcher.replacement.es.append(Node {
+                            entry: Entry::subst(Subst(WVec::from(&whnf.0.base.borrow().assignment.as_ref().unwrap().args[entry.range.clone()]), whnf.0.es.clone())),
+                            bindings: entry.bindings.downgrade()
+                        }, owned_linked);
+                    }
                     if matcher.pattern.len() == 0 {
                         return ControlFlow::Break(Some(matcher.replacement.clone()));
                     }
-                    // TODO entries
                 } else {
                     patterns.remove(i);
                 }
@@ -549,11 +555,9 @@ impl <'a> Term {
                 let arg = whnf.0.arg(i, Entry::vars(var.entry_id), owned_linked);
                 arg._reduce(patterns, owned_linked)?;
             }
-        } else {
-            return ControlFlow::Break(None); // TODO 
         }
 
-        patterns.append(&mut wildcards);
+        patterns.append(&mut wildcards); // TODO this changes the order
         ControlFlow::Continue(())
     }
 
@@ -563,7 +567,7 @@ impl <'a> Term {
             replacement: Term { base: rule.replacement.downgrade(), es: self.es.clone() }
         }).collect();
 
-        self._reduce(&mut matchers, owned_linked).break_value().unwrap()
+        self._reduce(&mut matchers, owned_linked).break_value().flatten()
     }
 }
 

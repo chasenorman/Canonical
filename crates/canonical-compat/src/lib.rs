@@ -201,11 +201,21 @@ pub fn main() {
                 value: IRValue::Opaque }
             ],
         head: "+".to_string(),
-        args: vec![t!("a"), t!("S", t!("b"))]
+        args: vec![t!("a"), t!("+", t!("b"), t!("c"))]
     };
     
     let term = S::new(ir_term.to_term(&ES::new()));
     let rules = &term.borrow().bindings.borrow().lets[2].borrow().rules;
+    let term = Term { es: term.borrow().gamma.clone(), base: term.downgrade()};
 
-    println!("{}", Term { es: term.borrow().gamma.clone(), base: term.downgrade()}.reduce(rules, &mut Vec::new()).is_some() );
+    println!("{:?}", rules);
+    // println!("{}", term);
+
+    let mut owned_linked = Vec::new();
+
+    let reduction = term.reduce(rules, &mut owned_linked);
+    match reduction {
+        Some(reduced) => println!("{}", reduced),
+        None => println!("No reduction found")
+    }
 }
