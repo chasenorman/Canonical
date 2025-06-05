@@ -84,6 +84,15 @@ impl fmt::Display for Rule {
         for symbol in self.pattern.iter() {
             if let Some(symbol) = symbol {
                 write!(f, "{} ", symbol.bind.borrow().name)?;
+                if !symbol.entries.is_empty() {
+                    write!(f, "[")?;
+                    for entry in symbol.entries.iter() {
+                        write!(f, "{:?}, ", entry.range)?;
+                    }
+                    write!(f, "] ")?;
+                }
+
+
             } else {
                 write!(f, "* ")?;
             }

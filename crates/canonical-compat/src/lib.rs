@@ -175,7 +175,7 @@ pub fn main() {
     };
 
 
-    let to = t!("0");
+    let to = t!("x");
 
     let ir_term = IRTerm {
         params: vec![],

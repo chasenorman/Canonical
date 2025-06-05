@@ -6,6 +6,7 @@ use std::iter;
 use crate::stats::SearchInfo;
 use mimalloc::MiMalloc;
 use std::cell::RefCell;
+use std::ops::Range;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -232,10 +233,15 @@ impl<T> Indexed<T> {
     }
 }
 
+pub struct SubstRange {
+    pub range: Range<usize>,
+    pub bindings: S<Indexed<S<Bind>>>
+}
+
 pub struct Symbol {
     pub bind: W<Bind>,
     pub children: Vec<usize>,
-    pub entries: Vec<std::ops::Range<usize>>
+    pub entries: Vec<SubstRange>
 }
 
 pub struct Rule {
