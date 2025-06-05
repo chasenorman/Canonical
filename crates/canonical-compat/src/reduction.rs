@@ -36,13 +36,42 @@ impl IRTerm {
     }
 }
 
-fn get_children(builds: &Vec<(&mut Build, &IRTerm, ES)>) -> Vec<usize> {
-    let len = builds.get(0).unwrap().1.args.len();
-    let mut children: Vec<usize> = Vec::new();
-    for i in 0..len {
-        children.push(i);
+fn head_count(i: usize, builds: &Vec<(&mut Build, &IRTerm, ES)>) -> (u32, u32) {
+    let mut non_wildcards = 0;
+    let mut distinct = 0;
+    let mut seen = HashSet::new();
+    for (_, term, es) in builds.iter() {
+        let arg = &term.args[i];
+        if let Some((_, bind)) = arg.add_local(&es).index_of(&arg.head) {
+            if !seen.contains(&bind) {
+                distinct += 1;
+            }
+            seen.insert(bind.clone());
+            non_wildcards += 1;
+        }
     }
-    // TODO 
+    (non_wildcards, distinct)
+}
+
+fn get_children(builds: &Vec<(&mut Build, &IRTerm, ES)>) -> Vec<usize> {
+    let len = builds[0].1.args.len();
+    let mut children: Vec<usize> = (0..len).filter(|&i| {
+        head_count(i, builds).0 != 0
+    }).collect();
+
+    children.sort_by(|&a, &b| {
+        let (a_non_wildcards, a_distinct) = head_count(a, builds);
+        let (b_non_wildcards, b_distinct) = head_count(b, builds);
+        
+        // Decreasing order of non-wildcards
+        if a_non_wildcards != b_non_wildcards {
+            return b_non_wildcards.cmp(&a_non_wildcards);            
+        }
+
+        // Increasing order of distinct
+        return a_distinct.cmp(&b_distinct)
+    });
+
     return children;
 }
 
@@ -116,8 +145,7 @@ fn _to_rules(state: Vec<(&mut Build, &IRTerm, ES)>) {
         for i in children.into_iter() {
             let mut new_builds: Vec<(&mut Build, &IRTerm, ES)> = Vec::new();
             for (build, term, es) in builds.iter_mut() {
-                let arg = term.args.get(i).unwrap();
-                new_builds.push((build, arg, es.clone()));
+                new_builds.push((build, &term.args[i], es.clone()));
             }
             _to_rules(new_builds);
         }
@@ -142,7 +170,7 @@ pub fn to_rules(rules: &Vec<IRRule>, es: &ES, owned_linked: &mut Vec<S<Linked>>)
 
     _to_rules(state);
 
-    owned.into_iter().zip(rules.iter()).map(|(build, rule)| {
+    owned.into_iter().zip(rules.iter()).map(|(mut build, rule)| {
         let mut rhs_es = es.clone();
         for bindings in build.bindings.iter() {
             rhs_es = rhs_es.append(Node {
@@ -156,8 +184,12 @@ pub fn to_rules(rules: &Vec<IRRule>, es: &ES, owned_linked: &mut Vec<S<Linked>>)
             }, owned_linked);
         }
 
+        while let Some(None) = build.pattern.last() {
+            build.pattern.pop();
+        }
+
         Rule {
-            pattern: build.pattern, // TODO remove trailing wildcards
+            pattern: build.pattern,
             replacement: S::new(rule.rhs.to_term(&rhs_es)),
         }
     }).collect()
