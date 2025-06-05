@@ -7,6 +7,7 @@ use std::fs::File;
 use string_interner::{DefaultBackend, StringInterner};
 use std::sync::Mutex;
 use std::sync::LazyLock;
+use crate::reduction::to_rules;
 use canonical_core::stats::SearchInfo;
 
 /// We use String interning for the names of inductive types in the `Value`, for fast equality checking.
@@ -30,10 +31,17 @@ pub struct IRVar {
     pub irrelevant: bool,
 }
 
+#[derive(PartialEq, Eq, Serialize, Deserialize)]
+pub struct IRRule {
+    pub lhs: IRTerm,
+    pub rhs: IRTerm
+}
+
 /// A let declaration, with a variable and value. -/
 #[derive(PartialEq, Eq, Serialize, Deserialize)]
 pub struct IRLet {
     pub var: IRVar,
+    pub rules: Vec<IRRule>,
     pub value: IRValue
 }
 
@@ -87,12 +95,13 @@ impl IRValue {
 }
 
 impl IRVar {
-    fn to_bind(&self) -> Bind {
+    pub fn to_bind(&self) -> Bind {
         Bind {
             name: self.name.clone(),
             irrelevant: self.irrelevant,
+            rules: Vec::new(),
             value: Value::Opaque,
-            major: false
+            major: false,
         }
     }
 }
@@ -105,7 +114,7 @@ fn disambiguate_bind(preferred_name: &String, es: &ES) -> Bind {
         count += 1;
         name = preferred_name.clone() + &count.to_string();
     }
-    Bind { name, irrelevant: false, value: Value::Opaque, major: false }
+    Bind { name, irrelevant: false, rules: Vec::new(), value: Value::Opaque, major: false }
 }
 
 /// Construct a copy of `bindings` such that the names are not already in `es`.
@@ -133,6 +142,7 @@ impl IRTerm {
 
         // Use the extended ES to resolve the values of the lets. 
         for (i, d) in self.lets.iter().enumerate() {
+            bindings.borrow_mut().lets[i].borrow_mut().rules = to_rules(&d.rules, &es, owned_linked);
             bindings.borrow_mut().lets[i].borrow_mut().value = d.value.to_value(&es, owned_linked);
         }
         (es, bindings)
@@ -172,7 +182,7 @@ impl IRTerm {
         let es = es.append(node, &mut owned_linked);
         let params = bindings.borrow().params.iter().map(|b| IRVar { name: b.borrow().name.clone(), irrelevant: false }).collect();
         let lets = bindings.borrow().lets.iter().map(|b| 
-            IRLet { var: IRVar { name: b.borrow().name.clone(), irrelevant: false }, value: IRValue::Opaque }).collect();
+            IRLet { var: IRVar { name: b.borrow().name.clone(), irrelevant: false }, value: IRValue::Opaque, rules: Vec::new() }).collect();
         match &meta.borrow().assignment {
             None => IRTerm { params, lets, head: Self::meta_html(meta), args: Vec::new() },
             Some(assignment) => IRTerm {

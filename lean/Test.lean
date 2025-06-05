@@ -1,4 +1,4 @@
 import Canonical
 
-example : 0 + n = n := by
+noncomputable example (a b : List Nat) : List Nat := by
   canonical +refine

@@ -78,3 +78,16 @@ impl fmt::Display for Type {
         Ok(())
     }
 }
+
+impl fmt::Display for Rule {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for symbol in self.pattern.iter() {
+            if let Some(symbol) = symbol {
+                write!(f, "{} ", symbol.bind.borrow().name)?;
+            } else {
+                write!(f, "* ")?;
+            }
+        }
+        Ok(())
+    }
+}

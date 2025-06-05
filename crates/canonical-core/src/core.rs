@@ -232,6 +232,17 @@ impl<T> Indexed<T> {
     }
 }
 
+pub struct Symbol {
+    pub bind: W<Bind>,
+    pub children: Vec<usize>,
+    pub entries: Vec<std::ops::Range<usize>>
+}
+
+pub struct Rule {
+    pub pattern: Vec<Option<Symbol>>,
+    pub replacement: S<Meta>
+}
+
 /// The Value of a variable in the original input problem, if any.
 pub enum Value {
     Opaque,
@@ -246,6 +257,7 @@ pub struct Bind {
     pub name: String,
     // Proof irrelevance, currently unused.
     pub irrelevant: bool,
+    pub rules: Vec<Rule>,
     pub value: Value,
     // If true, this variable cannot be assigned to a constructor.
     pub major: bool

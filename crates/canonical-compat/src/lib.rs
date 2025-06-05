@@ -4,6 +4,7 @@ use canonical_core::prover::Prover;
 use canonical_core::memory::S;
 pub mod ir;
 pub mod refine;
+pub mod reduction;
 use ir::*;
 use std::time::SystemTime;
 
@@ -128,9 +129,8 @@ macro_rules! P {
 
 /// Entrypoint for CLI, which reads a problem from a json file. 
 /// You can create a json file using the `+debug` tactic option.
-#[tokio::main]
-pub async fn main() {
-    let tb = IRType::load("lean/debug.json".to_string()).to_type(&ES::new());
+pub fn main() {
+    /* let tb = IRType::load("lean/debug.json".to_string()).to_type(&ES::new());
     let entry = &tb.codomain.borrow().gamma.linked.as_ref().unwrap().borrow().node.entry;
     let node = Node { 
         entry: Entry { params_id: entry.params_id, lets_id: entry.lets_id, subst: None, 
@@ -140,7 +140,7 @@ pub async fn main() {
     let mut owned_linked = Vec::new();
     let es = ES::new().append(node, &mut owned_linked);
     let tb_ref = S::new(tb);
-    let problem_bind = S::new(Bind { name: "proof".to_string(), irrelevant: false, value: Value::Opaque, major: false });
+    let problem_bind = S::new(Bind { name: "proof".to_string(), irrelevant: false, rules: Vec::new(), value: Value::Opaque, major: false });
     let ty = Type(tb_ref.downgrade(), es, problem_bind.downgrade());
     let prover = Prover::new(ty, false);
 
@@ -161,5 +161,32 @@ pub async fn main() {
         println!("{}", now.elapsed().unwrap().as_secs_f32());
         println!("{}", IRTerm::from_term(term.base, &ES::new()));
         std::process::exit(0);
-    }, true);
+    }, true); */
+
+    // let test = P!([("A", T!()), ("B", T!()), ("f", P!([("x", T!("A"))], "B")), ("a", T!("A"))], "B");
+    // let test = P!([("Type", T!()), ("A", T!("Type")), ("B", T!("Type")), ("f", P!([("X", T!("Type")), ("x", T!("X"))], "A")), ("b", T!("B"))], "A");
+    let x = t!("x");
+    let zero = t!("0");
+    let from = IRTerm {
+        params: vec![],
+        lets: vec![],
+        head: "+".to_string(),
+        args: vec![x, zero]
+    };
+
+
+    let to = t!("0");
+
+    let ir_term = IRTerm {
+        params: vec![],
+        lets: vec![IRLet { var: IRVar { name: "0".to_string(), irrelevant: false }, rules: vec![], value: IRValue::Opaque },
+                    IRLet { var: IRVar { name: "S".to_string(), irrelevant: false }, rules: vec![], value: IRValue::Opaque },
+                    IRLet { var: IRVar { name: "+".to_string(), irrelevant: false }, rules: vec![IRRule { lhs: from, rhs: to }], value: IRValue::Opaque }],
+        head: "0".to_string(),
+        args: vec![]
+    };
+
+    let term = ir_term.to_term(&ES::new());
+
+    println!("{}", term.bindings.borrow().lets[2].borrow().rules[0])
 }
