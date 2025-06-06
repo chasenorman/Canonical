@@ -201,7 +201,7 @@ pub fn main() {
                 value: IRValue::Opaque }
             ],
         head: "+".to_string(),
-        args: vec![t!("a"), t!("+", t!("b"), t!("c"))]
+        args: vec![t!("0"), t!("+", t!("S", t!("a")), t!("0"))]
     };
     
     let term = S::new(ir_term.to_term(&ES::new()));
@@ -213,9 +213,6 @@ pub fn main() {
 
     let mut owned_linked = Vec::new();
 
-    let reduction = term.reduce(rules, &mut owned_linked);
-    match reduction {
-        Some(reduced) => println!("{}", reduced),
-        None => println!("No reduction found")
-    }
+    let reduction = term.whnf(&mut owned_linked, false);
+    println!("{}", reduction);
 }

@@ -1,5 +1,6 @@
 use thread_local_collect::tlm::channeled::Control;
 use Index::*;
+use crate::heuristic::next;
 use crate::memory::{S, W, WVec};
 use std::num::NonZero;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -499,16 +500,21 @@ impl Term {
         match &self.base.borrow().assignment {
             Some(assn) => {
                 let es = self.es.sub_es(assn.head.0);
-                let Head { var, term, set_no_iota } = 
-                    es.get_head(assn.head.1, Subst(WVec::new(&assn.args), self.es.clone()), owned_linked, prog_synth);
-                
+
                 // If there is a term at the head, recursively reduce it. Otherwise, the variable is the head symbol.
-                match term {
-                    Some(term) => term.whnf(owned_linked, prog_synth),
-                    None => {
-                        let (var, stuck) = var.unwrap();
-                        WHNF(if set_no_iota {self.no_iota()} else {self.clone()}, Some(var), stuck)
+                if let Param(i) = assn.head.1 {
+                    if let Some(subst) = &es.linked.as_ref().unwrap().borrow().node.entry.subst {
+                        // If there is a substitution, and the index is a parameter, return the associated term in the substitution. 
+                        let term = subst.get(i, Entry::subst(Subst(WVec::new(&assn.args), self.es.clone())), owned_linked);
+                        return term.whnf(owned_linked, prog_synth);
                     }
+                }
+
+                let var = es.get_var(assn.head.1);
+                if let Some(term) = self.reduce(&var.bind.borrow().rules, owned_linked) {
+                    return term.whnf(owned_linked, prog_synth);
+                } else {
+                    return WHNF(self.clone(), Some(var), None);
                 }
             },
             None => WHNF(self.clone(), None, Some(self.base.clone()))
@@ -518,20 +524,16 @@ impl Term {
 
 impl <'a> Term {
     fn _reduce(&self, patterns: &mut Vec<Matcher<'a>>, owned_linked: &mut Vec<S<Linked>>) -> ControlFlow<Option<Term>> {
-        // TODO return if empty?
+        if patterns.is_empty() { return ControlFlow::Continue(()); }
         let mut wildcards = Vec::new();
         
         let whnf = self.whnf(owned_linked, false);
-        let Some(var) = &whnf.1 else {
-            return ControlFlow::Break(None);
-            // TODO metavariable, only the wildcards get through.
-        };
         let mut ordering: Option<&Vec<usize>> = None;
         
         for i in (0..patterns.len()).rev() {
             let matcher = &mut patterns[i];
             if let Some(symbol) = matcher.pattern.next().unwrap() {
-                if symbol.bind.eq(&var.bind) {
+                if whnf.1.is_some() && symbol.bind.eq(&whnf.1.as_ref().unwrap().bind) {
                     ordering = Some(&symbol.children);
                     for entry in symbol.entries.iter() {
                         matcher.replacement.es = matcher.replacement.es.append(Node {
@@ -552,7 +554,7 @@ impl <'a> Term {
 
         if let Some(ordering) = ordering {
             for &i in ordering {
-                let arg = whnf.0.arg(i, Entry::vars(var.entry_id), owned_linked);
+                let arg = whnf.0.arg(i, Entry::vars(next_u64()), owned_linked);
                 arg._reduce(patterns, owned_linked)?;
             }
         }
@@ -562,12 +564,41 @@ impl <'a> Term {
     }
 
     pub fn reduce(&self, patterns: &Vec<Rule>, owned_linked: &mut Vec<S<Linked>>) -> Option<Term> {
-        let mut matchers: Vec<Matcher> = patterns.iter().map(|rule| Matcher {
-            pattern: rule.pattern.iter(),
-            replacement: Term { base: rule.replacement.downgrade(), es: self.es.clone() }
-        }).collect();
+        let mut ordering = None;
+        let mut matchers: Vec<Matcher> = Vec::new();
+        for rule in patterns.iter() {
+            // TODO super hacky.
+            let mut iter = rule.pattern.iter();
+            let symbol = iter.next().unwrap().as_ref().unwrap();
+            ordering = Some(&symbol.children);
+            let mut es = self.es.clone();
 
-        self._reduce(&mut matchers, owned_linked).break_value().flatten()
+            for entry in symbol.entries.iter() {
+                es = es.append(Node {
+                    entry: Entry::subst(Subst(WVec::from(&self.base.borrow().assignment.as_ref().unwrap().args[entry.range.clone()]), self.es.clone())),
+                    bindings: entry.bindings.downgrade()
+                }, owned_linked);
+            }
+            if iter.len() == 0 {
+                return Some(Term { base: rule.replacement.downgrade(), es })
+            }
+
+            matchers.push(Matcher {
+                pattern: iter,
+                replacement: Term { base: rule.replacement.downgrade(), es }
+            })
+        }
+
+        if let Some(ordering) = ordering {
+            for &i in ordering {
+                let arg = self.arg(i, Entry::vars(next_u64()), owned_linked);
+                if let ControlFlow::Break(term) = arg._reduce(&mut matchers, owned_linked) {
+                    return term;
+                }
+            }
+        }
+
+        return None
     }
 }
 
