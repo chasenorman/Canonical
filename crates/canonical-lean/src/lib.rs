@@ -301,9 +301,36 @@ fn to_lean_value(value: &IRValue) -> *const LeanObject {
 }
 
 #[repr(C)]
+pub struct LeanRule {
+    m_header: LeanObject,
+    lhs: *const LeanTerm,
+    rhs: *const LeanTerm
+}
+
+fn to_ir_rule(r: *const LeanRule) -> IRRule {
+    unsafe {
+        IRRule {
+            lhs: to_ir_term((*r).lhs),
+            rhs: to_ir_term((*r).rhs)
+        }
+    }
+}
+
+fn to_lean_rule(r: &IRRule) -> *const LeanRule {
+    unsafe {
+        let o = lean_alloc_ctor(0, 2, 0) as *mut LeanRule;
+        (*o).lhs = to_lean_term(&r.lhs);
+        (*o).rhs = to_lean_term(&r.rhs);
+        o
+    }
+}
+
+
+#[repr(C)]
 pub struct LeanLet {
     m_header: LeanObject,
     name: *const LeanStringObject,
+    rules: *const LeanArrayObject,
     value: *const LeanObject,
     irrelevant: bool
 }
@@ -315,7 +342,7 @@ fn to_ir_let(l: *const LeanLet) -> IRLet {
                 name: to_string((*l).name),
                 irrelevant: (*l).irrelevant
             },
-            rules: Vec::new(), // TODO
+            rules: to_vec((*l).rules).iter().map(|x| to_ir_rule(*x as *const LeanRule)).collect(),
             value: to_ir_value((*l).value)
         }
     }
@@ -323,9 +350,10 @@ fn to_ir_let(l: *const LeanLet) -> IRLet {
 
 fn to_lean_let(d: &IRLet) -> *const LeanLet {
     unsafe {
-        let o = lean_alloc_ctor(0, 2, 1) as *mut LeanLet;
+        let o = lean_alloc_ctor(0, 3, 1) as *mut LeanLet;
         (*o).name = to_lean_string(&d.var.name);
         (*o).irrelevant = d.var.irrelevant;
+        (*o).rules = to_lean_array(&d.rules.iter().map(|x| to_lean_rule(x) as *const LeanObject).collect());
         (*o).value = to_lean_value(&d.value);
         o
     }
@@ -482,7 +510,7 @@ fn main(ir_type: IRType, sender: Sender<()>, program_synthesis: bool, count: usi
     let mut owned_linked = Vec::new();
     let es = ES::new().append(node, &mut owned_linked);
     let tb_ref = S::new(tb);
-    let problem_bind = S::new(Bind { name: "proof".to_string(), irrelevant: false, rules: Vec::new(), value: Value::Opaque, major: false });
+    let problem_bind = S::new(Bind { name: "proof".to_string(), irrelevant: false, rules: Vec::new(), value: Value::Opaque, major: false, owned_bindings: Vec::new() });
     let ty = Type(tb_ref.downgrade(), es, problem_bind.downgrade());
     let prover = Prover::new(ty, program_synthesis);
 
@@ -584,7 +612,7 @@ pub unsafe extern "C" fn refine(typ: *const LeanType, _prog_synth: bool) -> *con
     let mut owned_linked = Vec::new(); // must be stored
     let es = ES::new().append(node, &mut owned_linked);
     let tb_ref = S::new(tb); // must be stored
-    let problem_bind = S::new(Bind { name: "proof".to_string(), irrelevant: false, rules: Vec::new(), value: Value::Opaque, major: false }); // must be stored
+    let problem_bind = S::new(Bind { name: "proof".to_string(), irrelevant: false, rules: Vec::new(), value: Value::Opaque, major: false, owned_bindings: Vec::new() }); // must be stored
     let ty = Type(tb_ref.downgrade(), es, problem_bind.downgrade());
     let meta = S::new(Meta::new(ty));
     let new_state = AppState {

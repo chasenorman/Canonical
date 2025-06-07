@@ -270,7 +270,9 @@ pub struct Bind {
     pub rules: Vec<Rule>,
     pub value: Value,
     // If true, this variable cannot be assigned to a constructor.
-    pub major: bool
+    pub major: bool,
+
+    pub owned_bindings: Vec<S<Indexed<S<Bind>>>>
 }
 
 /// An explicit substitution entry, consisting of identifiers for the params and lets
@@ -511,7 +513,7 @@ impl Term {
                 }
 
                 let var = es.get_var(assn.head.1);
-                if let Some(term) = self.reduce(&var.bind.borrow().rules, owned_linked) {
+                if let Some(term) = self.reduce(&var.bind.borrow().rules, owned_linked, es) {
                     return term.whnf(owned_linked, prog_synth);
                 } else {
                     return WHNF(self.clone(), Some(var), None);
@@ -563,7 +565,7 @@ impl <'a> Term {
         ControlFlow::Continue(())
     }
 
-    pub fn reduce(&self, patterns: &Vec<Rule>, owned_linked: &mut Vec<S<Linked>>) -> Option<Term> {
+    pub fn reduce(&self, patterns: &Vec<Rule>, owned_linked: &mut Vec<S<Linked>>, sub_es: ES) -> Option<Term> {
         let mut ordering = None;
         let mut matchers: Vec<Matcher> = Vec::new();
         for rule in patterns.iter() {
@@ -571,7 +573,7 @@ impl <'a> Term {
             let mut iter = rule.pattern.iter();
             let symbol = iter.next().unwrap().as_ref().unwrap();
             ordering = Some(&symbol.children);
-            let mut es = self.es.clone();
+            let mut es = sub_es.clone();
 
             for entry in symbol.entries.iter() {
                 es = es.append(Node {

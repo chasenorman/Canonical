@@ -10,7 +10,7 @@ struct Build {
 }
 
 impl IRTerm {
-    pub fn add_local(&self, es: &ES) -> ES {
+    pub fn add_local(&self, es: &ES, owned_linked: &mut Vec<S<Linked>>) -> (ES, S<Indexed<S<Bind>>>) {
         let bindings = S::new(Indexed {
             params: self.params.iter().map(|v| S::new(v.to_bind())).collect(),
             lets: self.lets.iter().map(|d| S::new(d.var.to_bind())).collect()
@@ -20,29 +20,34 @@ impl IRTerm {
             entry: Entry { params_id: next_u64(), lets_id: next_u64(), subst: None, context: None }, 
             bindings: bindings.downgrade() 
         };
-        es.append(node, &mut Vec::new())
+        (es.append(node, owned_linked), bindings)
     }
 
-    pub fn free_variables(&self, es: &ES, owned_linked: &mut Vec<S<Linked>>, result: &mut HashSet<String>) {
-        let es = self.add_local(es);
+    pub fn free_variables(&self, es: &ES, result: &mut HashSet<String>) {
+        let mut owned_linked = Vec::new();
+        // This function just returns strings, so the bindings don't need to be saved.
+        let (es, bindings) = self.add_local(es, &mut owned_linked);
 
         if es.index_of(&self.head).is_none() {
             result.insert(self.head.clone());
         }
 
         for arg in &self.args {
-            arg.free_variables(&es, owned_linked, result);
+            arg.free_variables(&es, result);
         }
     }
 }
 
 fn head_count(i: usize, builds: &Vec<(&mut Build, &IRTerm, ES)>) -> (u32, u32) {
+    let mut owned_linked = Vec::new();
     let mut non_wildcards = 0;
     let mut distinct = 0;
     let mut seen = HashSet::new();
     for (_, term, es) in builds.iter() {
         let arg = &term.args[i];
-        if let Some((_, bind)) = arg.add_local(&es).index_of(&arg.head) {
+        // This function just returns (u32, u32), so the bindings don't need to be saved.
+        let (es, bindings) = arg.add_local(&es, &mut owned_linked);
+        if let Some((_, bind)) = es.index_of(&arg.head) {
             if !seen.contains(&bind) {
                 distinct += 1;
             }
@@ -81,7 +86,9 @@ fn get_entries(build: &mut Build, term: &IRTerm, es: ES) -> Vec<SubstRange> {
     let mut start = 0;
     
     for (i, arg) in term.args.iter().enumerate() {
-        if arg.add_local(&es).index_of(&arg.head).is_none() && build.arguments.contains(&arg.head) {
+        let mut owned_linked = Vec::new();
+        let (es, _bindings) = arg.add_local(&es, &mut owned_linked);
+        if es.index_of(&arg.head).is_none() && build.arguments.contains(&arg.head) {
             build.arguments.remove(&arg.head);
             if bindings.is_none() {
                 bindings = Some(Indexed {
@@ -96,7 +103,8 @@ fn get_entries(build: &mut Build, term: &IRTerm, es: ES) -> Vec<SubstRange> {
                 irrelevant: false,
                 rules: Vec::new(),
                 value: Value::Opaque,
-                major: false
+                major: false,
+                owned_bindings: Vec::new()
             }))
         } else if bindings.is_some() {
             let bindings = S::new(bindings.take().unwrap());
@@ -114,11 +122,12 @@ fn get_entries(build: &mut Build, term: &IRTerm, es: ES) -> Vec<SubstRange> {
     return entries;
 }
 
-fn _to_rules(state: Vec<(&mut Build, &IRTerm, ES)>) {
+fn _to_rules(state: Vec<(&mut Build, &IRTerm, ES)>, owned_linked: &mut Vec<S<Linked>>, owned_bindings: &mut Vec<S<Indexed<S<Bind>>>>) {
     // Partition by the head `Bind`.
     let mut map: HashMap<W<Bind>, Vec<(&mut Build, &IRTerm, ES)>> = HashMap::new();
     for (build, term, es) in state.into_iter() {
-        let es = term.add_local(&es);
+        let (es, bindings) = term.add_local(&es, owned_linked);
+        owned_bindings.push(bindings);
         if let Some((_, bind)) = es.index_of(&term.head) {
             if !map.contains_key(&bind) {
                 map.insert(bind.clone(), Vec::new());
@@ -147,16 +156,16 @@ fn _to_rules(state: Vec<(&mut Build, &IRTerm, ES)>) {
             for (build, term, es) in builds.iter_mut() {
                 new_builds.push((build, &term.args[i], es.clone()));
             }
-            _to_rules(new_builds);
+            _to_rules(new_builds, owned_linked, owned_bindings);
         }
     }
 }
 
-pub fn to_rules(rules: &Vec<IRRule>, es: &ES, owned_linked: &mut Vec<S<Linked>>) -> Vec<Rule> {
+pub fn to_rules(rules: &Vec<IRRule>, es: &ES, owned_linked: &mut Vec<S<Linked>>, owned_bindings: &mut Vec<S<Indexed<S<Bind>>>>) -> Vec<Rule> {    
     let mut owned: Vec<Build> = rules.iter().map(|rule|{
         let mut arguments: HashSet<String> = HashSet::new();
         // TODO ensure that params are set to Vec::new()
-        rule.rhs.free_variables(es, owned_linked, &mut arguments);
+        rule.rhs.free_variables(es, &mut arguments);
         Build {
             pattern: Vec::new(),
             bindings: Vec::new(),
@@ -168,7 +177,7 @@ pub fn to_rules(rules: &Vec<IRRule>, es: &ES, owned_linked: &mut Vec<S<Linked>>)
         (build, &rule.lhs, es.clone())
     }).collect();
 
-    _to_rules(state);
+    _to_rules(state, owned_linked, owned_bindings);
 
     owned.into_iter().zip(rules.iter()).map(|(mut build, rule)| {
         let mut rhs_es = es.clone();

@@ -130,7 +130,7 @@ macro_rules! P {
 /// Entrypoint for CLI, which reads a problem from a json file. 
 /// You can create a json file using the `+debug` tactic option.
 pub fn main() {
-    /* let tb = IRType::load("lean/debug.json".to_string()).to_type(&ES::new());
+    let tb = IRType::load("lean/debug.json".to_string()).to_type(&ES::new());
     let entry = &tb.codomain.borrow().gamma.linked.as_ref().unwrap().borrow().node.entry;
     let node = Node { 
         entry: Entry { params_id: entry.params_id, lets_id: entry.lets_id, subst: None, 
@@ -140,7 +140,7 @@ pub fn main() {
     let mut owned_linked = Vec::new();
     let es = ES::new().append(node, &mut owned_linked);
     let tb_ref = S::new(tb);
-    let problem_bind = S::new(Bind { name: "proof".to_string(), irrelevant: false, rules: Vec::new(), value: Value::Opaque, major: false });
+    let problem_bind = S::new(Bind { name: "proof".to_string(), irrelevant: false, rules: Vec::new(), value: Value::Opaque, major: false, owned_bindings: Vec::new() });
     let ty = Type(tb_ref.downgrade(), es, problem_bind.downgrade());
     let prover = Prover::new(ty, false);
 
@@ -161,12 +161,9 @@ pub fn main() {
         println!("{}", now.elapsed().unwrap().as_secs_f32());
         println!("{}", IRTerm::from_term(term.base, &ES::new()));
         std::process::exit(0);
-    }, true); */
+    }, true);
 
-    // let test = P!([("A", T!()), ("B", T!()), ("f", P!([("x", T!("A"))], "B")), ("a", T!("A"))], "B");
-    // let test = P!([("Type", T!()), ("A", T!("Type")), ("B", T!("Type")), ("f", P!([("X", T!("Type")), ("x", T!("X"))], "A")), ("b", T!("B"))], "A");
-    
-    let add_zero_lhs = t!("+", t!("x"), t!("0"));
+    /*let add_zero_lhs = t!("+", t!("x"), t!("0"));
     let add_zero_rhs = t!("x");
 
     let add_succ_lhs = t!("+", t!("x"), t!("S", t!("y")));
@@ -214,5 +211,5 @@ pub fn main() {
     let mut owned_linked = Vec::new();
 
     let reduction = term.whnf(&mut owned_linked, false);
-    println!("{}", reduction);
+    println!("{}", reduction);*/
 }

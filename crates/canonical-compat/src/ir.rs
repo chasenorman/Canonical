@@ -102,6 +102,7 @@ impl IRVar {
             rules: Vec::new(),
             value: Value::Opaque,
             major: false,
+            owned_bindings: Vec::new()
         }
     }
 }
@@ -114,7 +115,7 @@ fn disambiguate_bind(preferred_name: &String, es: &ES) -> Bind {
         count += 1;
         name = preferred_name.clone() + &count.to_string();
     }
-    Bind { name, irrelevant: false, rules: Vec::new(), value: Value::Opaque, major: false }
+    Bind { name, irrelevant: false, rules: Vec::new(), value: Value::Opaque, major: false, owned_bindings: Vec::new() }
 }
 
 /// Construct a copy of `bindings` such that the names are not already in `es`.
@@ -142,7 +143,9 @@ impl IRTerm {
 
         // Use the extended ES to resolve the values of the lets. 
         for (i, d) in self.lets.iter().enumerate() {
-            bindings.borrow_mut().lets[i].borrow_mut().rules = to_rules(&d.rules, &es, owned_linked);
+            let mut owned_bindings = Vec::new();
+            bindings.borrow_mut().lets[i].borrow_mut().rules = to_rules(&d.rules, &es, owned_linked, &mut owned_bindings);
+            bindings.borrow_mut().lets[i].borrow_mut().owned_bindings = owned_bindings;
             bindings.borrow_mut().lets[i].borrow_mut().value = d.value.to_value(&es, owned_linked);
         }
         (es, bindings)
