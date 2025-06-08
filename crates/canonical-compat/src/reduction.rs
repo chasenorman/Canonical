@@ -102,8 +102,6 @@ fn get_entries(build: &mut Build, term: &IRTerm, es: ES) -> Vec<SubstRange> {
                 name: arg.head.clone(),
                 irrelevant: false,
                 rules: Vec::new(),
-                value: Value::Opaque,
-                major: false,
                 owned_bindings: Vec::new()
             }))
         } else if bindings.is_some() {

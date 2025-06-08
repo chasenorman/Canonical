@@ -140,7 +140,7 @@ pub fn main() {
     let mut owned_linked = Vec::new();
     let es = ES::new().append(node, &mut owned_linked);
     let tb_ref = S::new(tb);
-    let problem_bind = S::new(Bind { name: "proof".to_string(), irrelevant: false, rules: Vec::new(), value: Value::Opaque, major: false, owned_bindings: Vec::new() });
+    let problem_bind = S::new(Bind { name: "proof".to_string(), irrelevant: false, rules: Vec::new(), owned_bindings: Vec::new() });
     let ty = Type(tb_ref.downgrade(), es, problem_bind.downgrade());
     let prover = Prover::new(ty, false);
 

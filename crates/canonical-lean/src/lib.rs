@@ -207,100 +207,6 @@ fn to_lean_var(v: &IRVar) -> *const LeanVar {
 }
 
 #[repr(C)]
-pub struct LeanDefinition {
-    m_header: LeanObject,
-    term: *const LeanTerm,
-}
-
-#[repr(C)]
-pub struct LeanConstructor {
-    m_header: LeanObject,
-    type_name: *const LeanStringObject,
-    index: usize,
-    args_start: usize
-}
-
-#[repr(C)]
-pub struct LeanRecursor {
-    m_header: LeanObject,
-    type_name: *const LeanStringObject,
-    rules: *const LeanArrayObject,
-    shared: usize,
-    major: usize
-}
-
-#[repr(C)]
-pub struct LeanProjection {
-    m_header: LeanObject,
-    type_name: *const LeanStringObject,
-    index: usize,
-    major: usize
-}
-
-#[repr(C)]
-pub struct LeanHasMajor {
-    m_header: LeanObject,
-    major: usize
-}
-
-fn to_ir_value(value: *const LeanObject) -> IRValue {
-    unsafe { match lean_obj_tag(value) {
-        0 => {
-            let defn = value as *const LeanDefinition;
-            IRValue::Definition(to_ir_term((*defn).term))
-        }
-        1 => {
-            let ctor = value as *const LeanConstructor;
-            IRValue::Constructor(to_string((*ctor).type_name), (*ctor).index, (*ctor).args_start)
-        }
-        2 => {
-            let rec = value as *const LeanRecursor;
-            let rules = to_vec((*rec).rules).iter().map(|x| to_ir_term(*x as *const LeanTerm)).collect();
-            IRValue::Recursor(to_string((*rec).type_name), (*rec).shared, (*rec).major, rules)
-        }
-        3 => {
-            let proj = value as *const LeanProjection;
-            IRValue::Projection(to_string((*proj).type_name), (*proj).index, (*proj).major)
-        }
-        _ => IRValue::Opaque
-    } }
-}
-
-fn to_lean_value(value: &IRValue) -> *const LeanObject {
-    unsafe { match value {
-        IRValue::Definition(term) => {
-            let o = lean_alloc_ctor(0, 1, 0) as *mut LeanDefinition;
-            (*o).term = to_lean_term(term);
-            o as *const LeanObject
-        }
-        IRValue::Constructor(type_name, index, args_start) => {
-            let o = lean_alloc_ctor(1, 1, std::mem::size_of::<usize>()*2) as *mut LeanConstructor;
-            (*o).type_name = to_lean_string(type_name);
-            (*o).index = *index;
-            (*o).args_start = *args_start;
-            o as *const LeanObject
-        }
-        IRValue::Recursor(type_name, shared, major, rules) => {
-            let rules = to_lean_array(&rules.iter().map(|x| to_lean_term(x) as *const LeanObject).collect());
-            let o = lean_alloc_ctor(2, 2, std::mem::size_of::<usize>()*2) as *mut LeanRecursor;
-            (*o).type_name = to_lean_string(type_name);
-            (*o).rules = rules;
-            (*o).shared = *shared;
-            (*o).major = *major;
-            o as *const LeanObject
-        }
-        IRValue::Projection(type_name, index, major) => {
-            let o = lean_alloc_ctor(3, 1, std::mem::size_of::<usize>()*2) as *mut LeanProjection;
-            (*o).type_name = to_lean_string(type_name);
-            (*o).index = *index;
-            (*o).major = *major;
-            o as *const LeanObject
-        }
-        IRValue::Opaque => lean_box(4)
-    } }
-}
-
-#[repr(C)]
 pub struct LeanRule {
     m_header: LeanObject,
     lhs: *const LeanTerm,
@@ -331,7 +237,6 @@ pub struct LeanLet {
     m_header: LeanObject,
     name: *const LeanStringObject,
     rules: *const LeanArrayObject,
-    value: *const LeanObject,
     irrelevant: bool
 }
 
@@ -342,19 +247,17 @@ fn to_ir_let(l: *const LeanLet) -> IRLet {
                 name: to_string((*l).name),
                 irrelevant: (*l).irrelevant
             },
-            rules: to_vec((*l).rules).iter().map(|x| to_ir_rule(*x as *const LeanRule)).collect(),
-            value: to_ir_value((*l).value)
+            rules: to_vec((*l).rules).iter().map(|x| to_ir_rule(*x as *const LeanRule)).collect()
         }
     }
 }
 
 fn to_lean_let(d: &IRLet) -> *const LeanLet {
     unsafe {
-        let o = lean_alloc_ctor(0, 3, 1) as *mut LeanLet;
+        let o = lean_alloc_ctor(0, 2, 1) as *mut LeanLet;
         (*o).name = to_lean_string(&d.var.name);
         (*o).irrelevant = d.var.irrelevant;
         (*o).rules = to_lean_array(&d.rules.iter().map(|x| to_lean_rule(x) as *const LeanObject).collect());
-        (*o).value = to_lean_value(&d.value);
         o
     }
 }
@@ -510,7 +413,7 @@ fn main(ir_type: IRType, sender: Sender<()>, program_synthesis: bool, count: usi
     let mut owned_linked = Vec::new();
     let es = ES::new().append(node, &mut owned_linked);
     let tb_ref = S::new(tb);
-    let problem_bind = S::new(Bind { name: "proof".to_string(), irrelevant: false, rules: Vec::new(), value: Value::Opaque, major: false, owned_bindings: Vec::new() });
+    let problem_bind = S::new(Bind { name: "proof".to_string(), irrelevant: false, rules: Vec::new(), owned_bindings: Vec::new() });
     let ty = Type(tb_ref.downgrade(), es, problem_bind.downgrade());
     let prover = Prover::new(ty, program_synthesis);
 
@@ -612,7 +515,7 @@ pub unsafe extern "C" fn refine(typ: *const LeanType, _prog_synth: bool) -> *con
     let mut owned_linked = Vec::new(); // must be stored
     let es = ES::new().append(node, &mut owned_linked);
     let tb_ref = S::new(tb); // must be stored
-    let problem_bind = S::new(Bind { name: "proof".to_string(), irrelevant: false, rules: Vec::new(), value: Value::Opaque, major: false, owned_bindings: Vec::new() }); // must be stored
+    let problem_bind = S::new(Bind { name: "proof".to_string(), irrelevant: false, rules: Vec::new(), owned_bindings: Vec::new() }); // must be stored
     let ty = Type(tb_ref.downgrade(), es, problem_bind.downgrade());
     let meta = S::new(Meta::new(ty));
     let new_state = AppState {

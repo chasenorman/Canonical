@@ -253,24 +253,12 @@ pub struct Rule {
     pub replacement: S<Meta>
 }
 
-/// The Value of a variable in the original input problem, if any.
-pub enum Value {
-    Opaque,
-    Definition(S<Meta>),
-    Constructor(DefaultSymbol, usize, usize),
-    Recursor(DefaultSymbol, usize, usize, Vec<S<Meta>>, Vec<S<Indexed<S<Bind>>>>),
-    Projection(DefaultSymbol, usize, usize)
-}
-
 /// The `name` and `value` of a variable in the original input problem.
 pub struct Bind {
     pub name: String,
     // Proof irrelevance, currently unused.
     pub irrelevant: bool,
     pub rules: Vec<Rule>,
-    pub value: Value,
-    // If true, this variable cannot be assigned to a constructor.
-    pub major: bool,
 
     pub owned_bindings: Vec<S<Indexed<S<Bind>>>>
 }
@@ -376,76 +364,6 @@ impl ES {
         }
     }
 
-    /// Gets the `Head` at the root of this ES at the given `index`. 
-    fn get_head(&self, index: Index, args: Subst, owned_linked: &mut Vec<S<Linked>>, prog_synth: bool) -> Head {
-        if let Param(i) = index {
-            if let Some(subst) = &self.linked.as_ref().unwrap().borrow().node.entry.subst {
-                // If there is a substitution, and the index is a parameter, return the associated term in the substitution. 
-                return Head { var: None, term: Some(subst.get(i, Entry::subst(args), owned_linked)), set_no_iota: false }
-            }
-        }
-        let var = self.get_var(index);
-        // We should return `var`, unless there is definitional reduction behavior.
-        return match &var.bind.borrow().value {
-            Value::Definition(def) => {
-                // Specialize the let definition with the arguments.
-                let term = Some(Term {
-                    base: def.downgrade(),
-                    es: self.append(Node { entry: Entry::subst(args), bindings: def.borrow().bindings.clone() }, owned_linked)
-                });
-                Head { var: Some((var, None)), term, set_no_iota: false }
-            }
-            Value::Recursor(typ, shared, major_idx, rules, owned_bindings) => {
-                if self.iota_reduce || prog_synth {
-                    // We must check if the major argument has a constructor at the head. 
-                    let major = args.get(*major_idx, Entry::vars(next_u64()), owned_linked).whnf(owned_linked, prog_synth);
-                    if let Some(head) = &major.1 {
-                        if let Value::Constructor(typ2, index, args_start) = head.bind.borrow().value {
-                            if typ2.eq(typ) {
-                                // The rule is specialized with the type parameters (shared), followed by the arguments to the constructor.
-                                let es = self.append(Node { 
-                                    entry: Entry::subst(Subst(WVec::from(&args.0[..*shared]), args.1)), 
-                                    bindings: owned_bindings[index].downgrade() 
-                                }, owned_linked).append(Node { 
-                                    entry: Entry::subst(Subst(WVec::from(&major.0.base.borrow().assignment.as_ref().unwrap().args[args_start..]), major.0.es)), 
-                                    bindings: rules[index].borrow().bindings.clone()
-                                }, owned_linked);
-
-                                return Head { var: None, term: Some(Term { base: rules[index].downgrade(), es }), set_no_iota: false }
-                            }
-                        }
-                    } else {
-                        // We are stuck on the major argument.
-                        return Head { var: Some((var, major.2)), term: None, set_no_iota: true }
-                    }
-                }
-                Head { var: Some((var, None)), term: None, set_no_iota: false }
-            }
-            Value::Projection(typ, index, major_idx) => {
-                if self.iota_reduce || prog_synth {
-                    // We must check if the major argument has a constructor at the head. 
-                    let major = args.get(*major_idx, Entry::vars(next_u64()), owned_linked).whnf(owned_linked, prog_synth);
-                    if let Some(head) = &major.1 {
-                        if let Value::Constructor(typ2, _, args_start) = head.bind.borrow().value {
-                            if typ2.eq(typ) {
-                                // Access the structure field at position `index` and apply it with any arguments following the major argument.
-                                return Head { var: None, term: Some(major.0.arg(*index + args_start, 
-                                    Entry::subst(Subst(WVec::from(&args.0[major_idx+1..]), args.1)), owned_linked)
-                                ), set_no_iota: false }
-                            }
-                        }
-                    } else {
-                        // We are stuck on the major argument.
-                        return Head { var: Some((var, major.2)), term: None, set_no_iota: true }
-                    }
-                }
-                Head { var: Some((var, None)), term: None, set_no_iota: false }
-            }
-            _  => Head { var: Some((var, None)), term: None, set_no_iota: false }
-        }
-        
-    }
-
     /// Returns an iterator of `DeBruijnIndex` in this `ES``, along with the `Linked` they are rooted at.
     pub fn iter(&self) -> impl Iterator<Item = (DeBruijnIndex, W<Linked>)> {
         iter::successors(self.linked.clone(), |node| 
@@ -487,14 +405,6 @@ impl Term {
     fn arg(&self, i: usize, entry: Entry, owned_linked: &mut Vec<S<Linked>>) -> Term {
         let base = self.base.borrow().assignment.as_ref().unwrap().args[i].downgrade();
         Term { es: self.es.append(Node { entry, bindings: base.borrow().bindings.clone() }, owned_linked), base }
-    }
-
-    /// Creates a version of this `Term` that does not perform iota reduction.
-    fn no_iota(&self) -> Term {
-        Term {
-            base: self.base.clone(),
-            es: ES { linked: self.es.linked.clone(), iota_reduce: false }
-        }
     }
 
     /// Computes the weak head normal form. 

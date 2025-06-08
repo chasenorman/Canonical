@@ -13,17 +13,6 @@ use canonical_core::stats::SearchInfo;
 /// We use String interning for the names of inductive types in the `Value`, for fast equality checking.
 static INTERNER : LazyLock<Mutex<StringInterner<DefaultBackend>>> = LazyLock::new(|| Mutex::new(StringInterner::default()));
 
-/// The value of a let declaration, which can be a term, 
-/// custom reduction behavior (like recursor), or opaque.
-#[derive(PartialEq, Eq, Serialize, Deserialize)]
-pub enum IRValue {
-    Definition(IRTerm),
-    Constructor(String, usize, usize),
-    Recursor(String, usize, usize, Vec<IRTerm>),
-    Projection(String, usize, usize),
-    Opaque
-}
-
 /// A variable with a `name`, and whether it is proof `irrelevant` (unused).
 #[derive(PartialEq, Eq, Serialize, Deserialize, Clone)]
 pub struct IRVar {
@@ -41,8 +30,7 @@ pub struct IRRule {
 #[derive(PartialEq, Eq, Serialize, Deserialize)]
 pub struct IRLet {
     pub var: IRVar,
-    pub rules: Vec<IRRule>,
-    pub value: IRValue
+    pub rules: Vec<IRRule>
 }
 
 /// A term is an n-ary, β-normal, η-long λ expression: 
@@ -63,45 +51,12 @@ pub struct IRType {
     pub codomain: IRTerm,
 }
 
-impl IRValue {
-    pub fn to_value(&self, es: &ES, _owned_linked: &mut Vec<S<Linked>>) -> Value {
-        match self {
-            IRValue::Definition(t) => {
-                let term = S::new(t.to_term(es));
-                Value::Definition(term)
-            }
-            IRValue::Constructor(s, i, n) => 
-                Value::Constructor(INTERNER.lock().unwrap().get_or_intern(s), *i, *n),
-            IRValue::Recursor(s, shared, major, rules) => {
-                let mut owned_bindings = Vec::new();
-                // Recursors create two sets of bindings, and are correspondingly applied twice in the `get_head` function. 
-                // The first set is for the type parameters (shared), and the second is for the arguments to the constructor.
-                let rules = rules.iter().map(|r| {
-                    let (pop, params) = r.params.split_at(*shared);
-                    let mut owned_linked = Vec::new();
-                    let (es, bindings) = r.extend_es(es, &mut owned_linked, pop);
-                    owned_bindings.push(bindings);
-                    let (es2, bindings2) = r.extend_es(&es, &mut owned_linked, params);
-                    
-                    S::new(r.to_body(es2, bindings2, owned_linked))
-                }).collect();
-                Value::Recursor(INTERNER.lock().unwrap().get_or_intern(s), *shared, *major, rules, owned_bindings)
-            }
-            IRValue::Projection(s, i, n) => 
-                Value::Projection(INTERNER.lock().unwrap().get_or_intern(s), *i, *n),
-            IRValue::Opaque => Value::Opaque
-        }
-    }
-}
-
 impl IRVar {
     pub fn to_bind(&self) -> Bind {
         Bind {
             name: self.name.clone(),
             irrelevant: self.irrelevant,
             rules: Vec::new(),
-            value: Value::Opaque,
-            major: false,
             owned_bindings: Vec::new()
         }
     }
@@ -115,7 +70,7 @@ fn disambiguate_bind(preferred_name: &String, es: &ES) -> Bind {
         count += 1;
         name = preferred_name.clone() + &count.to_string();
     }
-    Bind { name, irrelevant: false, rules: Vec::new(), value: Value::Opaque, major: false, owned_bindings: Vec::new() }
+    Bind { name, irrelevant: false, rules: Vec::new(), owned_bindings: Vec::new() }
 }
 
 /// Construct a copy of `bindings` such that the names are not already in `es`.
@@ -146,7 +101,6 @@ impl IRTerm {
             let mut owned_bindings = Vec::new();
             bindings.borrow_mut().lets[i].borrow_mut().rules = to_rules(&d.rules, &es, owned_linked, &mut owned_bindings);
             bindings.borrow_mut().lets[i].borrow_mut().owned_bindings = owned_bindings;
-            bindings.borrow_mut().lets[i].borrow_mut().value = d.value.to_value(&es, owned_linked);
         }
         (es, bindings)
     }
@@ -185,7 +139,7 @@ impl IRTerm {
         let es = es.append(node, &mut owned_linked);
         let params = bindings.borrow().params.iter().map(|b| IRVar { name: b.borrow().name.clone(), irrelevant: false }).collect();
         let lets = bindings.borrow().lets.iter().map(|b| 
-            IRLet { var: IRVar { name: b.borrow().name.clone(), irrelevant: false }, value: IRValue::Opaque, rules: Vec::new() }).collect();
+            IRLet { var: IRVar { name: b.borrow().name.clone(), irrelevant: false }, rules: Vec::new() }).collect();
         match &meta.borrow().assignment {
             None => IRTerm { params, lets, head: Self::meta_html(meta), args: Vec::new() },
             Some(assignment) => IRTerm {
@@ -230,32 +184,6 @@ impl IRType {
             t.as_ref().map(|t| S::new(t.to_type(&codomain.gamma)))).collect();
         let mut lets : Vec<Option<S<TypeBase>>> = self.lets.iter().map(|t|
              t.as_ref().map(|t| S::new(t.to_type(&codomain.gamma)))).collect();
-        
-        for (i, d) in lets.iter_mut().enumerate() {
-            let Some(tb) = d else { continue };
-            match &codomain.bindings.borrow().lets[i].borrow().value {
-                Value::Recursor(_, _, major, _, _) | Value::Projection(_, _, major) => {
-                    tb.borrow_mut().codomain.borrow_mut().bindings.borrow_mut().params[*major].borrow_mut().major = true;
-                }
-                Value::Definition(t) => {
-                    let args = tb.borrow().args_metas(t.downgrade());
-                    let mut owned_linked = Vec::new();
-                    let es = codomain.gamma.append(Node { 
-                        entry: Entry::subst(Subst(WVec::new(&args), ES::new())), 
-                        bindings: tb.borrow().codomain.borrow().bindings.clone() 
-                    }, &mut owned_linked);
-                    if let Some(stuck) = (Term {base: t.downgrade(), es}.whnf(&mut owned_linked, true)).2 {
-                        // second iteration not ideal, only way to get the Bind for now. 
-                        for (i, b) in tb.borrow_mut().codomain.borrow_mut().bindings.borrow_mut().params.iter_mut().enumerate() {
-                            if stuck.points_to(&args[i]) {
-                                b.borrow_mut().major = true;
-                            }
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
 
         TypeBase {
             codomain: S::new(codomain),
@@ -272,7 +200,7 @@ impl fmt::Display for IRTerm {
                 write!(f, " {}", v.name)?;
             }
             for d in &self.lets {
-                write!(f, ", {} := {}", d.var.name, d.value)?;
+                write!(f, ", {} := {:?}", d.var.name, d.rules)?;
             }
             write!(f, " ↦ ")?;
         }
@@ -311,7 +239,7 @@ impl IRType {
                 Some(t) => t.fmt(f, " ")?,
                 None => write!(f, "*")?
             }
-            write!(f, " := {}) →{}", def.value, sep)?;
+            write!(f, " := {:?}) →{}", def.rules, sep)?;
         }
 
         write!(f, "{}", self.codomain.head)?;
@@ -341,14 +269,8 @@ impl IRType {
     }
 }
 
-impl fmt::Display for IRValue {
+impl fmt::Debug for IRRule {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            IRValue::Definition(t) => write!(f, "{}", t),
-            IRValue::Constructor(s, i, _n) => write!(f, "<{}::{}>", s, i),
-            IRValue::Recursor(s, _i, _n, _rules) => write!(f, "<{}.rec>", s),
-            IRValue::Projection(s, i, _n) => write!(f, "<{}.{}>", s, i),
-            IRValue::Opaque => write!(f, "_")
-        }
+        write!(f, "{} ↦ {}", self.lhs, self.rhs)
     }
 }

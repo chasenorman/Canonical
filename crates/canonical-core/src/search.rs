@@ -39,13 +39,6 @@ pub fn test(head: DeBruijnIndex, curr: W<Linked>, mut meta: W<Meta>, program_syn
     let gamma = meta.borrow().gamma.clone();
     let mut _owned_linked = Vec::new();
     let var_type = &curr.borrow().node.entry.context.as_ref().unwrap().get(head.1, Entry::subst(Subst(WVec::new(&args), gamma.clone())), &mut _owned_linked);
-    
-    if meta.borrow().typ.as_ref().unwrap().2.borrow().major {
-        if let Value::Constructor(_, _, _) = var_type.2.borrow().value {
-            // Constructors in major arguments violates canonicity. 
-            return None;
-        }
-    }
 
     meta.borrow_mut().assignment = Some(Assignment {
         head, args, bind: var_type.2.clone(), changes: Vec::new(), _owned_linked,
