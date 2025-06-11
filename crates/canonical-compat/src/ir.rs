@@ -70,7 +70,7 @@ fn disambiguate_bind(preferred_name: &String, es: &ES) -> Bind {
         count += 1;
         name = preferred_name.clone() + &count.to_string();
     }
-    Bind { name, irrelevant: false, rules: Vec::new(), owned_bindings: Vec::new() }
+    Bind::new(name)
 }
 
 /// Construct a copy of `bindings` such that the names are not already in `es`.

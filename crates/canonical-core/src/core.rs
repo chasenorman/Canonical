@@ -236,16 +236,10 @@ impl<T> Indexed<T> {
         Box::new(params_iter.chain(lets_iter))
     }
 }
-
-pub struct SubstRange {
-    pub range: Range<usize>,
-    pub bindings: S<Indexed<S<Bind>>>
-}
-
 pub struct Symbol {
     pub bind: W<Bind>,
     pub children: Vec<usize>,
-    pub entries: Vec<SubstRange>
+    pub bindings: S<Indexed<S<Bind>>>
 }
 
 pub struct Rule {
@@ -261,6 +255,17 @@ pub struct Bind {
     pub rules: Vec<Rule>,
 
     pub owned_bindings: Vec<S<Indexed<S<Bind>>>>
+}
+
+impl Bind {
+    pub fn new(name: String) -> Self {
+        Bind {
+            name,
+            irrelevant: false,
+            rules: Vec::new(),
+            owned_bindings: Vec::new()
+        }
+    }
 }
 
 /// An explicit substitution entry, consisting of identifiers for the params and lets
@@ -443,12 +448,10 @@ impl <'a> WHNF {
             if let Some(symbol) = matcher.pattern.next().unwrap() {
                 if self.1.is_some() && symbol.bind.eq(&self.1.as_ref().unwrap().bind) {
                     ordering = Some(&symbol.children);
-                    for entry in symbol.entries.iter() {
-                        matcher.replacement.es = matcher.replacement.es.append(Node {
-                            entry: Entry::subst(Subst(WVec::from(&self.0.base.borrow().assignment.as_ref().unwrap().args[entry.range.clone()]), self.0.es.clone())),
-                            bindings: entry.bindings.downgrade()
-                        }, owned_linked);
-                    }
+                    matcher.replacement.es = matcher.replacement.es.append(Node {
+                        entry: Entry::subst(Subst(WVec::new(&self.0.base.borrow().assignment.as_ref().unwrap().args), self.0.es.clone())),
+                        bindings: symbol.bindings.downgrade()
+                    }, owned_linked);
                     if matcher.pattern.len() == 0 {
                         return ControlFlow::Break(Some(matcher.replacement.clone()));
                     }

@@ -69,15 +69,15 @@ impl<T> WVec<T> {
         WVec { ptr: v.as_slice() }
     }
 
-    /// Convert `slice` into a `WVec`.
-    pub fn from(slice: &[T]) -> Self {
-        WVec { ptr: slice }
-    }
+    // Convert `slice` into a `WVec`.
+    // pub fn from(slice: &[T]) -> Self {
+    //     WVec { ptr: slice }
+    // }
 
-    /// Length of the underlying slice.
-    pub fn len(&self) -> usize {
-        unsafe { (*self.ptr).len() }
-    }
+    // Length of the underlying slice.
+    // pub fn len(&self) -> usize {
+    //     unsafe { (*self.ptr).len() }
+    // }
 }
 
 impl<T> std::ops::Index<usize> for WVec<T> {

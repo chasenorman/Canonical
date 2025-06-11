@@ -5,7 +5,6 @@ use std::collections::{HashMap, HashSet};
 
 struct Build {
     pub pattern: Vec<Option<Symbol>>,
-    pub bindings: Vec<W<Indexed<S<Bind>>>>,
     pub arguments: HashSet<String>
 }
 
@@ -80,44 +79,26 @@ fn get_children(builds: &Vec<(&mut Build, &IRTerm, ES)>) -> Vec<usize> {
     return children;
 }
 
-fn get_entries(build: &mut Build, term: &IRTerm, es: ES) -> Vec<SubstRange> {
-    let mut entries = Vec::new();
-    let mut bindings: Option<Indexed<S<Bind>>> = None;
-    let mut start = 0;
+fn get_bindings(build: &mut Build, term: &IRTerm, es: ES) -> S<Indexed<S<Bind>>> {
+    let mut params: Vec<S<Bind>> = Vec::new();
+    let mut found = false;
     
-    for (i, arg) in term.args.iter().enumerate() {
+    for arg in term.args.iter() {
         let mut owned_linked = Vec::new();
         let (es, _bindings) = arg.add_local(&es, &mut owned_linked);
         if es.index_of(&arg.head).is_none() && build.arguments.contains(&arg.head) {
             build.arguments.remove(&arg.head);
-            if bindings.is_none() {
-                bindings = Some(Indexed {
-                    params: Vec::new(),
-                    lets: Vec::new()
-                });
-                start = i;
-            }
-            // TODO add simple constructor
-            bindings.as_mut().unwrap().params.push(S::new(Bind {
-                name: arg.head.clone(),
-                irrelevant: false,
-                rules: Vec::new(),
-                owned_bindings: Vec::new()
-            }))
-        } else if bindings.is_some() {
-            let bindings = S::new(bindings.take().unwrap());
-            build.bindings.push(bindings.downgrade());
-            entries.push(SubstRange{ range: start..i, bindings });
+            params.push(S::new(Bind::new(arg.head.clone())));
+            found = true;
+        } else {
+            params.push(S::new(Bind::new("*".to_string())));
         }
     }
 
-    if bindings.is_some() {
-        let bindings = S::new(bindings.take().unwrap());
-        build.bindings.push(bindings.downgrade());
-        entries.push(SubstRange{ range: start..term.args.len(), bindings });
-    }
-
-    return entries;
+    return S::new(Indexed {
+        params: if found { params } else { Vec::new() },
+        lets: Vec::new()
+    });
 }
 
 fn _to_rules(state: Vec<(&mut Build, &IRTerm, ES)>, owned_linked: &mut Vec<S<Linked>>, owned_bindings: &mut Vec<S<Indexed<S<Bind>>>>) {
@@ -140,13 +121,13 @@ fn _to_rules(state: Vec<(&mut Build, &IRTerm, ES)>, owned_linked: &mut Vec<S<Lin
         let children: Vec<usize> = get_children(&builds);
 
         for (build, term, es) in builds.iter_mut() {
-            let entries = get_entries(build, term, es.clone());
+            let bindings = get_bindings(build, term, es.clone());
             
             build.pattern.push(Some(Symbol {
                 bind: bind.clone(), 
                 children: children.clone(), 
-                entries
-            }))
+                bindings
+            }));
         }
 
         for i in children.into_iter() {
@@ -166,7 +147,6 @@ pub fn to_rules(rules: &Vec<IRRule>, es: &ES, owned_linked: &mut Vec<S<Linked>>,
         rule.rhs.free_variables(es, &mut arguments);
         Build {
             pattern: Vec::new(),
-            bindings: Vec::new(),
             arguments
         }
     }).collect();
@@ -179,16 +159,18 @@ pub fn to_rules(rules: &Vec<IRRule>, es: &ES, owned_linked: &mut Vec<S<Linked>>,
 
     owned.into_iter().zip(rules.iter()).map(|(mut build, rule)| {
         let mut rhs_es = es.clone();
-        for bindings in build.bindings.iter() {
-            rhs_es = rhs_es.append(Node {
-                entry: Entry { 
-                    params_id: next_u64(), 
-                    lets_id: next_u64(), 
-                    subst: None, 
-                    context: None 
-                }, 
-                bindings: bindings.clone()
-            }, owned_linked);
+        for symbol in build.pattern.iter() {
+            if let Some(symbol) = symbol {
+                rhs_es = rhs_es.append(Node {
+                    entry: Entry { 
+                        params_id: next_u64(), 
+                        lets_id: next_u64(), 
+                        subst: None, 
+                        context: None 
+                    }, 
+                    bindings: symbol.bindings.downgrade()
+                }, owned_linked);
+            }
         }
 
         while let Some(None) = build.pattern.last() {
