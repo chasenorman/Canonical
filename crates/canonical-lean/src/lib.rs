@@ -36,13 +36,13 @@ fn lean_unbox(o: *const LeanObject) -> usize {
     (o as usize) >> 1
 }
 
-fn lean_obj_tag(o: *const LeanObject) -> usize {
-    if lean_is_scalar(o) {
-        lean_unbox(o)
-    } else {
-        unsafe { (*o).m_tag as usize }
-    }
-}
+// fn lean_obj_tag(o: *const LeanObject) -> usize {
+//     if lean_is_scalar(o) {
+//         lean_unbox(o)
+//     } else {
+//         unsafe { (*o).m_tag as usize }
+//     }
+// }
 
 #[repr(C)]
 pub struct LeanStringObject {
@@ -356,6 +356,7 @@ fn to_lean_result(terms: *const LeanArrayObject, result: DFSResult, last_level_s
 //     lean_ctor_set(r, 1, lean_box(0));
 //     return r;
 // }
+
 #[repr(C)]
 pub struct LeanResult {
     m_header: LeanObject,

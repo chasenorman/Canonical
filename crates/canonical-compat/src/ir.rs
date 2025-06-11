@@ -182,7 +182,7 @@ impl IRType {
 
         let params : Vec<Option<S<TypeBase>>> = self.params.iter().map(|t| 
             t.as_ref().map(|t| S::new(t.to_type(&codomain.gamma)))).collect();
-        let mut lets : Vec<Option<S<TypeBase>>> = self.lets.iter().map(|t|
+        let lets : Vec<Option<S<TypeBase>>> = self.lets.iter().map(|t|
              t.as_ref().map(|t| S::new(t.to_type(&codomain.gamma)))).collect();
 
         TypeBase {
