@@ -11,6 +11,7 @@ use mimalloc::MiMalloc;
 use std::cell::RefCell;
 use std::ops::{ControlFlow, Range};
 use core::slice::Iter;
+use std::collections::HashSet;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -61,7 +62,8 @@ pub struct Assignment {
     pub _owned_linked: Vec<S<Linked>>, // never accessed, only used for ownership.
 
     /// True if the codomain of `head` is not stuck on a metavariable, for heuristics.
-    pub has_rigid_type: bool
+    pub has_rigid_type: bool,
+    pub var_type: Option<Type>
 }
 
 /// The core data structure for terms and metavariables, consisting of an `assignment`
@@ -109,12 +111,12 @@ impl Meta {
 
     /// Checks that the assignment made to `self` does not violate an equation.
     /// If successful, outputs the new equations and updates the `changes` of the assignment.
-    pub fn test_assignment(&mut self, var_type: &Type) -> Option<Vec<Equation>> {
+    pub fn test_assignment(&mut self) -> Option<Vec<Equation>> {
         let mut eqns = Vec::new();
         let assn = self.assignment.as_mut().unwrap();
 
         // check the type of `self` with the codomain of the `var_type`.
-        if (Equation { premise: var_type.codomain(), goal: self.typ.as_ref().unwrap().codomain() }
+        if (Equation { premise: assn.var_type.as_ref().unwrap().codomain(), goal: self.typ.as_ref().unwrap().codomain() }
             .reduce(&mut eqns, &mut assn.changes, &mut assn._owned_linked)) {
             // reduce existing equations
             if self.equations.iter().all(|eq|
@@ -245,7 +247,8 @@ pub struct Symbol {
 
 pub struct Rule {
     pub pattern: Vec<Option<Symbol>>,
-    pub replacement: S<Meta>
+    pub replacement: S<Meta>,
+    pub name: String
 }
 
 /// The `name` and `value` of a variable in the original input problem.
@@ -400,52 +403,61 @@ pub struct WHNF(pub Term, pub Head);
 
 pub struct Matcher<'a> {
     pub pattern: Iter<'a, Option<Symbol>>,
-    pub replacement: Term
+    pub replacement: Term,
+    pub name: &'a String
 }
 
 impl Term {
     /// Get the `i`th argument, applied with `entry`.
-    fn arg(&self, i: usize, entry: Entry, owned_linked: &mut Vec<S<Linked>>) -> Term {
+    pub fn arg(&self, i: usize, entry: Entry, owned_linked: &mut Vec<S<Linked>>) -> Term {
         let base = self.base.borrow().assignment.as_ref().unwrap().args[i].downgrade();
         Term { es: self.es.append(Node { entry, bindings: base.borrow().bindings.clone() }, owned_linked), base }
     }
 
     /// Computes the weak head normal form. 
     pub fn whnf(&self, owned_linked: &mut Vec<S<Linked>>) -> WHNF {
-        match &self.base.borrow().assignment {
-            Some(assn) => {
-                let es = self.es.sub_es(assn.head.0);
+        self._whnf(owned_linked, &mut None)
+    }
 
-                // If there is a term at the head, recursively reduce it. Otherwise, the variable is the head symbol.
-                if let Param(i) = assn.head.1 {
-                    if let Some(subst) = &es.linked.as_ref().unwrap().borrow().node.entry.subst {
-                        // If there is a substitution, and the index is a parameter, return the associated term in the substitution. 
-                        let term = subst.get(i, Entry::subst(Subst(WVec::new(&assn.args), self.es.clone())), owned_linked);
-                        return term.whnf(owned_linked);
-                    }
-                }
+    /// Computes the weak head normal form. 
+    pub fn _whnf(&self, owned_linked: &mut Vec<S<Linked>>, rules: &mut Option<Vec<String>>) -> WHNF {
+        if let Some(assn) = &self.base.borrow().assignment {
+            let es = self.es.sub_es(assn.head.0);
 
-                let var = es.get_var(assn.head.1);
-                let bind = var.bind.clone();
-                let whnf = WHNF(self.clone(), Head::Var(var));
-                if !bind.borrow().rules.is_empty() {
-                    let mut matchers = bind.borrow().rules.iter().map(|rule| Matcher {
-                        pattern: rule.pattern.iter(),
-                        replacement: Term { base: rule.replacement.downgrade(), es: es.clone() }
-                    }).collect();
-                    if let ControlFlow::Break(term) = whnf.reduce(&mut matchers, owned_linked) {
-                        return term.whnf(owned_linked);
-                    }
+            // If there is a term at the head, recursively reduce it. Otherwise, the variable is the head symbol.
+            if let Param(i) = assn.head.1 {
+                if let Some(subst) = &es.linked.as_ref().unwrap().borrow().node.entry.subst {
+                    // If there is a substitution, and the index is a parameter, return the associated term in the substitution. 
+                    let term = subst.get(i, Entry::subst(Subst(WVec::new(&assn.args), self.es.clone())), owned_linked);
+                    return term._whnf(owned_linked, rules);
                 }
-                return whnf;
-            },
-            None => WHNF(self.clone(), Head::Meta(self.base.clone()))
+            }
+
+            let var = es.get_var(assn.head.1);
+            let bind = var.bind.clone();
+            let whnf = WHNF(self.clone(), Head::Var(var));
+            if !bind.borrow().rules.is_empty() {
+                let mut matchers = bind.borrow().rules.iter().map(|rule| Matcher {
+                    pattern: rule.pattern.iter(),
+                    replacement: Term { base: rule.replacement.downgrade(), es: es.clone() },
+                    name: &rule.name
+                }).collect();
+                if let ControlFlow::Break((term, name)) = whnf.reduce(&mut matchers, owned_linked, rules) {
+                    if let Some(rules) = rules {
+                        rules.push(name.clone());
+                    }
+                    return term._whnf(owned_linked, rules);
+                }
+            }
+            whnf
+        } else {
+            WHNF(self.clone(), Head::Meta(self.base.clone()))
         }
     }
 }
 
 impl <'a> WHNF {
-    fn reduce(&self, patterns: &mut Vec<Matcher<'a>>, owned_linked: &mut Vec<S<Linked>>) -> ControlFlow<Term> {
+    fn reduce(&self, patterns: &mut Vec<Matcher<'a>>, owned_linked: &mut Vec<S<Linked>>, rules: &mut Option<Vec<String>>) -> ControlFlow<(Term, &'a String)> {
         let Head::Var(var) = &self.1 else {
             patterns.retain_mut(|matcher| 
                 matcher.pattern.next().unwrap().is_none()
@@ -465,7 +477,7 @@ impl <'a> WHNF {
                         bindings: symbol.bindings.downgrade()
                     }, owned_linked);
                     if matcher.pattern.len() == 0 {
-                        return ControlFlow::Break(matcher.replacement.clone());
+                        return ControlFlow::Break((matcher.replacement.clone(), matcher.name));
                     }
                     recursive.push(matcher);
                 }
@@ -475,7 +487,7 @@ impl <'a> WHNF {
         if let Some(ordering) = ordering {
             for &i in ordering {
                 let arg = self.0.arg(i, Entry::vars(next_u64()), owned_linked);
-                arg.whnf(owned_linked).reduce(&mut recursive, owned_linked)?;
+                arg._whnf(owned_linked, rules).reduce(&mut recursive, owned_linked, rules)?;
                 if recursive.is_empty() { break; }
             }
         }

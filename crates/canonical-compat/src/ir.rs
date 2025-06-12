@@ -23,7 +23,8 @@ pub struct IRVar {
 #[derive(PartialEq, Eq, Serialize, Deserialize)]
 pub struct IRRule {
     pub lhs: IRTerm,
-    pub rhs: IRTerm
+    pub rhs: IRTerm,
+    pub name: String
 }
 
 /// A let declaration, with a variable and value. -/
@@ -41,6 +42,9 @@ pub struct IRTerm {
     pub lets: Vec<IRLet>,
     pub head: String,
     pub args: Vec<IRTerm>,
+
+    pub premise_rules: Vec<String>,
+    pub goal_rules: Vec<String>
 }
 
 /// A type is an n-ary Π-type: `Π params lets . codomain`
@@ -58,6 +62,24 @@ impl IRVar {
             irrelevant: self.irrelevant,
             rules: Vec::new(),
             owned_bindings: Vec::new()
+        }
+    }
+}
+
+fn get_rules(term: &Term) -> Vec<String> {
+    let mut rules = Some(Vec::new());
+    let mut owned_linked = Vec::new();
+    _get_rules(term, &mut rules, &mut owned_linked);
+    rules.unwrap()
+}
+
+fn _get_rules(term: &Term, rules: &mut Option<Vec<String>>, owned_linked: &mut Vec<S<Linked>>) {
+    let whnf = term._whnf(owned_linked, rules);
+    if whnf.0.base.borrow().assignment.is_some() {
+        let len = whnf.0.base.borrow().assignment.as_ref().unwrap().args.len();
+        for i in 0..len {
+            let arg = whnf.0.arg(i, Entry::vars(next_u64()), owned_linked);
+            _get_rules(&arg, rules, owned_linked);
         }
     }
 }
@@ -117,7 +139,7 @@ impl IRTerm {
         let args = self.args.iter().map(|t| S::new(t.to_term(&es))).collect();
  
         Meta {
-            assignment: Some(Assignment { head, args, bind, changes: Vec::new(), _owned_linked: owned_linked, has_rigid_type: true }),
+            assignment: Some(Assignment { head, args, bind, changes: Vec::new(), _owned_linked: owned_linked, has_rigid_type: true, var_type: None }),
             typ: None,
             gamma: es,
             equations: Vec::new(),
@@ -140,12 +162,15 @@ impl IRTerm {
         let params = bindings.borrow().params.iter().map(|b| IRVar { name: b.borrow().name.clone(), irrelevant: false }).collect();
         let lets = bindings.borrow().lets.iter().map(|b| 
             IRLet { var: IRVar { name: b.borrow().name.clone(), irrelevant: false }, rules: Vec::new() }).collect();
+    
         match &meta.borrow().assignment {
-            None => IRTerm { params, lets, head: Self::meta_html(meta), args: Vec::new() },
+            None => IRTerm { params, lets, head: Self::meta_html(meta), args: Vec::new(), premise_rules: Vec::new(), goal_rules: Vec::new() },
             Some(assignment) => IRTerm {
                 params, lets,
                 head: es.sub_es(assignment.head.0).get_var(assignment.head.1).bind.borrow().name.clone(),
-                args: meta.borrow().assignment.as_ref().unwrap().args.iter().map(|m| IRTerm::from_term(m.downgrade(), &es)).collect()
+                args: meta.borrow().assignment.as_ref().unwrap().args.iter().map(|m| IRTerm::from_term(m.downgrade(), &es)).collect(),
+                premise_rules: assignment.var_type.as_ref().map(|typ| get_rules(&typ.codomain())).unwrap_or_default(),
+                goal_rules: meta.borrow().typ.as_ref().map(|typ| get_rules(&typ.codomain())).unwrap_or_default()
             }
         }
     }

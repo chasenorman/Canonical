@@ -38,14 +38,15 @@ pub fn test(head: DeBruijnIndex, curr: W<Linked>, mut meta: W<Meta>) -> Option<O
     let args: Vec<S<Meta>> = tb.borrow().args_metas(meta.clone());
     let gamma = meta.borrow().gamma.clone();
     let mut _owned_linked = Vec::new();
-    let var_type = &curr.borrow().node.entry.context.as_ref().unwrap().get(head.1, Entry::subst(Subst(WVec::new(&args), gamma.clone())), &mut _owned_linked);
+    let var_type = curr.borrow().node.entry.context.as_ref().unwrap().get(head.1, Entry::subst(Subst(WVec::new(&args), gamma.clone())), &mut _owned_linked);
 
     meta.borrow_mut().assignment = Some(Assignment {
         head, args, bind: var_type.2.clone(), changes: Vec::new(), _owned_linked,
-        has_rigid_type: matches!(var_type.codomain().whnf(&mut Vec::new()).1, Head::Var(_))
+        has_rigid_type: matches!(var_type.codomain().whnf(&mut Vec::new()).1, Head::Var(_)),
+        var_type: Some(var_type.clone()),
     });
 
-    let Some(eqns) = meta.borrow_mut().test_assignment(var_type) else {
+    let Some(eqns) = meta.borrow_mut().test_assignment() else {
         // Equation violation. 
         meta.borrow_mut().assignment = None;
         return Some(None);

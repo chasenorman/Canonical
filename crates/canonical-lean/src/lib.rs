@@ -210,23 +210,26 @@ fn to_lean_var(v: &IRVar) -> *const LeanVar {
 pub struct LeanRule {
     m_header: LeanObject,
     lhs: *const LeanTerm,
-    rhs: *const LeanTerm
+    rhs: *const LeanTerm,
+    name: *const LeanStringObject
 }
 
 fn to_ir_rule(r: *const LeanRule) -> IRRule {
     unsafe {
         IRRule {
             lhs: to_ir_term((*r).lhs),
-            rhs: to_ir_term((*r).rhs)
+            rhs: to_ir_term((*r).rhs),
+            name: to_string((*r).name)
         }
     }
 }
 
 fn to_lean_rule(r: &IRRule) -> *const LeanRule {
     unsafe {
-        let o = lean_alloc_ctor(0, 2, 0) as *mut LeanRule;
+        let o = lean_alloc_ctor(0, 3, 0) as *mut LeanRule;
         (*o).lhs = to_lean_term(&r.lhs);
         (*o).rhs = to_lean_term(&r.rhs);
+        (*o).name = to_lean_string(&r.name);
         o
     }
 }
@@ -268,7 +271,10 @@ pub struct LeanTerm {
     params: *const LeanArrayObject,
     lets: *const LeanArrayObject,
     head: *const LeanStringObject,
-    args: *const LeanArrayObject
+    args: *const LeanArrayObject,
+
+    premise_rules: *const LeanArrayObject,
+    goal_rules: *const LeanArrayObject
 }
 
 fn to_ir_term(term: *const LeanTerm) -> IRTerm {
@@ -277,18 +283,24 @@ fn to_ir_term(term: *const LeanTerm) -> IRTerm {
             params: to_vec((*term).params).iter().map(|x| to_ir_var(*x as *const LeanVar)).collect(),
             lets: to_vec((*term).lets).iter().map(|x| to_ir_let(*x as *const LeanLet)).collect(),
             head: to_string((*term).head),
-            args: to_vec((*term).args).iter().map(|x| to_ir_term(*x as *const LeanTerm)).collect()
+            args: to_vec((*term).args).iter().map(|x| to_ir_term(*x as *const LeanTerm)).collect(),
+            
+            premise_rules: Vec::new(),
+            goal_rules: Vec::new()
         }
     }
 }
 
 fn to_lean_term(term: &IRTerm) -> *const LeanTerm {
     unsafe {
-        let o = lean_alloc_ctor(0, 4, 0) as *mut LeanTerm;
+        let o = lean_alloc_ctor(0, 6, 0) as *mut LeanTerm;
         (*o).params = to_lean_array(&term.params.iter().map(|x| to_lean_var(x) as *const LeanObject).collect());
         (*o).lets = to_lean_array(&term.lets.iter().map(|x| to_lean_let(x) as *const LeanObject).collect());
         (*o).head = to_lean_string(&term.head);
         (*o).args = to_lean_array(&term.args.iter().map(|x| to_lean_term(x) as *const LeanObject).collect());
+
+        (*o).premise_rules = to_lean_array(&term.premise_rules.iter().map(|x| to_lean_string(x) as *const LeanObject).collect());
+        (*o).goal_rules = to_lean_array(&term.goal_rules.iter().map(|x| to_lean_string(x) as *const LeanObject).collect());
         o
     }
 }
