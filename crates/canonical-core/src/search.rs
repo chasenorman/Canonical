@@ -29,7 +29,7 @@ impl DFSResult {
 }
 
 /// Construct and test the `Assignment` from refining `meta` with `head`.
-pub fn test(head: DeBruijnIndex, curr: W<Linked>, mut meta: W<Meta>, program_synthesis: bool) -> Option<Option<(Assignment, Vec<Equation>, AssignmentInfo)>> {
+pub fn test(head: DeBruijnIndex, curr: W<Linked>, mut meta: W<Meta>) -> Option<Option<(Assignment, Vec<Equation>, AssignmentInfo)>> {
     let context = curr.borrow().node.entry.context.as_ref().unwrap();
     let Some(tb) = &context.0.borrow()[head.1] else {
         // Variable does not have a type, we are not permitted to apply it.
@@ -42,10 +42,10 @@ pub fn test(head: DeBruijnIndex, curr: W<Linked>, mut meta: W<Meta>, program_syn
 
     meta.borrow_mut().assignment = Some(Assignment {
         head, args, bind: var_type.2.clone(), changes: Vec::new(), _owned_linked,
-        has_rigid_type: var_type.codomain().whnf(&mut Vec::new(), false).1.is_some()
+        has_rigid_type: matches!(var_type.codomain().whnf(&mut Vec::new()).1, Head::Var(_))
     });
 
-    let Some(eqns) = meta.borrow_mut().test_assignment(var_type, program_synthesis) else {
+    let Some(eqns) = meta.borrow_mut().test_assignment(var_type) else {
         // Equation violation. 
         meta.borrow_mut().assignment = None;
         return Some(None);

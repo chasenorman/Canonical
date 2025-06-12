@@ -142,7 +142,7 @@ pub fn main() {
     let tb_ref = S::new(tb);
     let problem_bind = S::new(Bind::new("proof".to_string()));
     let ty = Type(tb_ref.downgrade(), es, problem_bind.downgrade());
-    let prover = Prover::new(ty, false);
+    let prover = Prover::new(ty);
 
     // Print step count each second.
     std::thread::spawn(move || {

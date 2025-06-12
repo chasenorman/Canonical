@@ -24,7 +24,7 @@ impl fmt::Display for Term {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut owned_linked = Vec::new();
         // prints the reduced form. 
-        let whnf = self.whnf(&mut owned_linked, false);
+        let whnf = self.whnf(&mut owned_linked);
         let needs_parens = self.base.borrow().bindings.borrow().needs_parens() || whnf.needs_parens();
         if needs_parens { write!(f, "(")? }
         self.base.borrow().bindings.borrow().fmt(f)?;
@@ -38,7 +38,11 @@ impl fmt::Display for WHNF {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.0.base.borrow().assignment {
             Some(assignment) => {
-                write!(f, "{}", &self.1.as_ref().unwrap().bind.borrow().name)?;
+                if let Head::Var(var) = &self.1 {
+                    write!(f, "{}", var.bind.borrow().name)?;
+                } else {
+                    write!(f, "...")?;
+                }
                 for arg in assignment.args.iter() {
                     let bindings = arg.borrow().bindings.clone();
                     write!(f, " {}", Term { base: arg.downgrade(), es: 
@@ -69,7 +73,7 @@ impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let codomain = self.codomain();
         let mut owned_linked = Vec::new();
-        let whnf = codomain.whnf(&mut owned_linked, false);
+        let whnf = codomain.whnf(&mut owned_linked);
         let needs_parens = codomain.base.borrow().bindings.borrow().needs_parens() || whnf.needs_parens();
         if needs_parens { write!(f, "(")? }
         codomain.base.borrow().bindings.borrow().fmt(f)?;

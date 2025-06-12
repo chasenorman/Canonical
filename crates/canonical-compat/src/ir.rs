@@ -155,8 +155,7 @@ impl IRTerm {
         let meta_id = meta.borrow() as *const Meta as usize;
 
         let options = meta.borrow().gamma.iter().filter_map(|(db, linked)| {
-            // TODO properly set program synthesis
-            if let Some(Some(result)) = test(db, linked, meta.clone(), false) {
+            if let Some(Some(result)) = test(db, linked, meta.clone()) {
                 let name = result.0.bind.borrow().name.clone();
 
                 let (index, def) = match db.1 {

@@ -403,7 +403,7 @@ pub extern "C" fn typ_to_string(t: *const LeanType) -> *const LeanStringObject {
 }
 
 /// Starts a `Prover` on `ir_type`, appending solutions to `terms` and sending on `sender` once complete.
-fn main(ir_type: IRType, sender: Sender<()>, program_synthesis: bool, count: usize, terms: Arc<Mutex<Vec<IRTerm>>>) -> (DFSResult, u32) {
+fn main(ir_type: IRType, sender: Sender<()>, count: usize, terms: Arc<Mutex<Vec<IRTerm>>>) -> (DFSResult, u32) {
     let tb = ir_type.to_type(&ES::new());
     let entry = &tb.codomain.borrow().gamma.linked.as_ref().unwrap().borrow().node.entry;
     let node = Node { 
@@ -416,7 +416,7 @@ fn main(ir_type: IRType, sender: Sender<()>, program_synthesis: bool, count: usi
     let tb_ref = S::new(tb);
     let problem_bind = S::new(Bind::new("proof".to_string()));
     let ty = Type(tb_ref.downgrade(), es, problem_bind.downgrade());
-    let prover = Prover::new(ty, program_synthesis);
+    let prover = Prover::new(ty);
 
     prover.prove(&|term: Term| {
         let mut v = terms.lock().unwrap();
@@ -464,7 +464,7 @@ static INSTANCE: Lazy<Lock> = Lazy::new(|| Lock::new());
 
 /// `canonical` in Lean.
 #[no_mangle]
-pub unsafe extern "C" fn canonical(typ: *const LeanType, timeout: u64, count: usize, prog_synth: bool, debug: bool) -> *const LeanResult {
+pub unsafe extern "C" fn canonical(typ: *const LeanType, timeout: u64, count: usize, debug: bool) -> *const LeanResult {
     INSTANCE.lock();
     let ir_type = to_ir_type(typ);
     if debug {
@@ -475,7 +475,7 @@ pub unsafe extern "C" fn canonical(typ: *const LeanType, timeout: u64, count: us
     let arc : Arc<Mutex<Vec<IRTerm>>> = Arc::new(Mutex::new(Vec::new()));
     let arc_clone = arc.clone();
     let worker = thread::spawn(move || {
-        main(ir_type, tx, prog_synth, count, arc_clone)
+        main(ir_type, tx, count, arc_clone)
     });
 
     // Regularly check whether the task has been cancelled from Lean, until the timout is reached. 
@@ -504,7 +504,7 @@ pub unsafe extern "C" fn canonical(typ: *const LeanType, timeout: u64, count: us
 
 /// `refine` in Lean.
 #[no_mangle]
-pub unsafe extern "C" fn refine(typ: *const LeanType, _prog_synth: bool) -> *const LeanResult {
+pub unsafe extern "C" fn refine(typ: *const LeanType) -> *const LeanResult {
     let ir_type = to_ir_type(typ);
     let tb = ir_type.to_type(&ES::new());
     let entry = &tb.codomain.borrow().gamma.linked.as_ref().unwrap().borrow().node.entry;

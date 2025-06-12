@@ -14,8 +14,7 @@ pub static NUM_JOBS: AtomicUsize = AtomicUsize::new(0);
 pub struct Prover {
     pub meta: S<Meta>,
     /// In case we only want to solve a subtree of `meta`, this defines the root for `next`.
-    pub next_root: W<Meta>,
-    pub program_synthesis: bool
+    pub next_root: W<Meta>
 }
 
 unsafe impl Send for Prover {}
@@ -23,9 +22,9 @@ unsafe impl Send for W<Meta> {}
 
 impl Prover {
     /// Creates a new Prover for the specified `Type`. 
-    pub fn new(typ: Type, program_synthesis: bool) -> Self {
+    pub fn new(typ: Type) -> Self {
         let meta = S::new(Meta::new(typ));
-        Prover { next_root: meta.downgrade(), meta, program_synthesis }
+        Prover { next_root: meta.downgrade(), meta }
     }
 
     /// Gets the current (partial) term of the prover. 
@@ -96,7 +95,7 @@ impl Prover {
         let mut total_weight = 0.0;
         let mut attempts = 0;
         for (db, linked) in next.meta.borrow().gamma.iter() {
-            let attempt = test(db, linked, next.meta.clone(), self.program_synthesis);
+            let attempt = test(db, linked, next.meta.clone());
             if attempt.is_some() {
                 attempts += 1;
             }
@@ -206,7 +205,7 @@ impl Prover {
     /// Return a clone of this prover and a map of metavariables between this and the new clone, with `stats_buffer` moved into `stats`.
     pub fn try_clone(&self) -> Option<(Self, HashMap<W<Meta>, W<Meta>>)> {
         Meta::try_clone(self.meta.downgrade()).map(|(meta, map)| {
-            (Prover { meta, next_root: map.get(&self.next_root).unwrap().clone(), program_synthesis: self.program_synthesis }, map)
+            (Prover { meta, next_root: map.get(&self.next_root).unwrap().clone() }, map)
         })
     }
 
@@ -229,7 +228,7 @@ pub fn transfer(from: W<Meta>, mut to: W<Meta>, map: &mut HashMap<W<Meta>, W<Met
     
     let sub_es = to.borrow().gamma.sub_es(from_assn.head.0);
     let Some(Some((to_assn, eqns, _info))) = 
-        test(from_assn.head, sub_es.linked.unwrap(), to.clone(), true) else { 
+        test(from_assn.head, sub_es.linked.unwrap(), to.clone()) else { 
             return false; 
         };
     

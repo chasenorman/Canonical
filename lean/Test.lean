@@ -22,4 +22,4 @@ example  (a b : Nat) : a + b = b + a := by
 -- set_option pp.explicit true
 #check add_comm
 
-example : 0 + n = n := by canonical +debug
+example : 0 + n = n := by canonical

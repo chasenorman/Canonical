@@ -109,16 +109,16 @@ impl Meta {
 
     /// Checks that the assignment made to `self` does not violate an equation.
     /// If successful, outputs the new equations and updates the `changes` of the assignment.
-    pub fn test_assignment(&mut self, var_type: &Type, prog_synth: bool) -> Option<Vec<Equation>> {
+    pub fn test_assignment(&mut self, var_type: &Type) -> Option<Vec<Equation>> {
         let mut eqns = Vec::new();
         let assn = self.assignment.as_mut().unwrap();
 
         // check the type of `self` with the codomain of the `var_type`.
         if (Equation { premise: var_type.codomain(), goal: self.typ.as_ref().unwrap().codomain() }
-            .reduce(&mut eqns, &mut assn.changes, &mut assn._owned_linked, prog_synth)) {
+            .reduce(&mut eqns, &mut assn.changes, &mut assn._owned_linked)) {
             // reduce existing equations
             if self.equations.iter().all(|eq|
-                eq.reduce(&mut eqns, &mut assn.changes, &mut assn._owned_linked, prog_synth)
+                eq.reduce(&mut eqns, &mut assn.changes, &mut assn._owned_linked)
             ) {
                 return Some(eqns)
             }
@@ -157,40 +157,41 @@ impl Equation {
     /// Break down the equation into equations that are stuck on metavariables, added to `equations`.
     /// Returns false if the equation is violated.
     fn reduce(&self, equations: &mut Vec<Equation>, changes: &mut Vec<W<Meta>>,
-              owned_linked: &mut Vec<S<Linked>>, prog_synth: bool) -> bool {
+              owned_linked: &mut Vec<S<Linked>>) -> bool {
         if owned_linked.len() > 1000 { return false }
         // Reduce both sides of the equation.
-        let WHNF(premise, premise_head, premise_meta) =
-            self.premise.whnf(owned_linked, prog_synth);
-        let WHNF(goal, goal_head, goal_meta) =
-            self.goal.whnf(owned_linked, prog_synth);
+        match self.premise.whnf(owned_linked) {
+            WHNF(premise, Head::Var(lhs)) => {
+                match self.goal.whnf(owned_linked) {
+                    WHNF(goal, Head::Var(rhs)) => {
+                        // If the head symbols are not equal, the equation is violated.
+                        if !lhs.eq(&rhs) { return false }
 
-        if premise_head.is_some() && (!prog_synth || premise_meta.is_none()) {
-            if goal_head.is_some() && (!prog_synth || goal_meta.is_none()) {
-                // If the head symbols are not equal, the equation is violated.
-                if !premise_head.as_ref().unwrap().eq(goal_head.as_ref().unwrap()) { return false }
+                        // Identifier for the variables bound by the arguments of premise and goal.
+                        let var_id = next_u64();
 
-                // Identifier for the variables bound by the arguments of premise and goal.
-                let var_id = next_u64();
-
-                // Check that the arguments of premise and goal are equal.
-                (0..premise.base.borrow().assignment.as_ref().unwrap().args.len()).all(|i|
-                    Equation {
-                        premise: premise.arg(i, Entry::vars(var_id), owned_linked),
-                        goal: goal.arg(i, Entry::vars(var_id), owned_linked)
-                    }.reduce(equations, changes, owned_linked, prog_synth)
-                )
-            } else {
-                // goal is stuck, add an equation associated with goal_meta.
-                equations.push(Equation { premise, goal });
-                changes.push(goal_meta.unwrap());
-                true
+                        // Check that the arguments of premise and goal are equal.
+                        (0..premise.base.borrow().assignment.as_ref().unwrap().args.len()).all(|i|
+                            Equation {
+                                premise: premise.arg(i, Entry::vars(var_id), owned_linked),
+                                goal: goal.arg(i, Entry::vars(var_id), owned_linked)
+                            }.reduce(equations, changes, owned_linked)
+                        )
+                    }
+                    WHNF(goal, Head::Meta(rhs)) => {
+                        // goal is stuck, add an equation associated with goal_meta.
+                        equations.push(Equation { premise, goal });
+                        changes.push(rhs);
+                        true
+                    }
+                }
             }
-        } else {
-            // premise is stuck, add an equation associated with premise_meta.
-            equations.push(Equation { premise, goal });
-            changes.push(premise_meta.unwrap());
-            true   
+            WHNF(premise, Head::Meta(lhs)) => {
+                // premise is stuck, add an equation associated with premise_meta.
+                equations.push(Equation { premise, goal: self.goal.clone() });
+                changes.push(lhs);
+                true   
+            }
         }
     }
 }
@@ -388,9 +389,14 @@ pub struct Term {
     pub es: ES
 }
 
+pub enum Head {
+    Var(Var),
+    Meta(W<Meta>)
+}
+
 /// A Term in weak head normal form, with the variable at the head, or the metavariable reduction is stuck on.
 /// We allow both the variable and metavariable to be present for when we are stuck on the major argument of a recursor.
-pub struct WHNF(pub Term, pub Option<Var>, pub Option<W<Meta>>);
+pub struct WHNF(pub Term, pub Head);
 
 pub struct Matcher<'a> {
     pub pattern: Iter<'a, Option<Symbol>>,
@@ -405,7 +411,7 @@ impl Term {
     }
 
     /// Computes the weak head normal form. 
-    pub fn whnf(&self, owned_linked: &mut Vec<S<Linked>>, prog_synth: bool) -> WHNF {
+    pub fn whnf(&self, owned_linked: &mut Vec<S<Linked>>) -> WHNF {
         match &self.base.borrow().assignment {
             Some(assn) => {
                 let es = self.es.sub_es(assn.head.0);
@@ -415,64 +421,66 @@ impl Term {
                     if let Some(subst) = &es.linked.as_ref().unwrap().borrow().node.entry.subst {
                         // If there is a substitution, and the index is a parameter, return the associated term in the substitution. 
                         let term = subst.get(i, Entry::subst(Subst(WVec::new(&assn.args), self.es.clone())), owned_linked);
-                        return term.whnf(owned_linked, prog_synth);
+                        return term.whnf(owned_linked);
                     }
                 }
 
                 let var = es.get_var(assn.head.1);
                 let bind = var.bind.clone();
-                let whnf = WHNF(self.clone(), Some(var), None);
+                let whnf = WHNF(self.clone(), Head::Var(var));
                 if !bind.borrow().rules.is_empty() {
                     let mut matchers = bind.borrow().rules.iter().map(|rule| Matcher {
                         pattern: rule.pattern.iter(),
                         replacement: Term { base: rule.replacement.downgrade(), es: es.clone() }
                     }).collect();
-                    if let ControlFlow::Break(Some(term)) = whnf.reduce(&mut matchers, owned_linked) {
-                        return term.whnf(owned_linked, prog_synth);
+                    if let ControlFlow::Break(term) = whnf.reduce(&mut matchers, owned_linked) {
+                        return term.whnf(owned_linked);
                     }
                 }
                 return whnf;
             },
-            None => WHNF(self.clone(), None, Some(self.base.clone()))
+            None => WHNF(self.clone(), Head::Meta(self.base.clone()))
         }
     }
 }
 
 impl <'a> WHNF {
-    fn reduce(&self, patterns: &mut Vec<Matcher<'a>>, owned_linked: &mut Vec<S<Linked>>) -> ControlFlow<Option<Term>> {
-        let mut wildcards = Vec::new();
+    fn reduce(&self, patterns: &mut Vec<Matcher<'a>>, owned_linked: &mut Vec<S<Linked>>) -> ControlFlow<Term> {
+        let Head::Var(var) = &self.1 else {
+            patterns.retain_mut(|matcher| 
+                matcher.pattern.next().unwrap().is_none()
+            );
+            return ControlFlow::Continue(())
+        };
+        let mut recursive = Vec::new();
         let mut ordering: Option<&Vec<usize>> = None;
         
         for i in (0..patterns.len()).rev() {
-            let matcher = &mut patterns[i];
-            if let Some(symbol) = matcher.pattern.next().unwrap() {
-                if self.1.is_some() && symbol.bind.eq(&self.1.as_ref().unwrap().bind) {
+            if let Some(symbol) = patterns[i].pattern.next().unwrap() {
+                let mut matcher = patterns.remove(i);
+                if symbol.bind.eq(&var.bind) {
                     ordering = Some(&symbol.children);
                     matcher.replacement.es = matcher.replacement.es.append(Node {
                         entry: Entry::subst(Subst(WVec::new(&self.0.base.borrow().assignment.as_ref().unwrap().args), self.0.es.clone())),
                         bindings: symbol.bindings.downgrade()
                     }, owned_linked);
                     if matcher.pattern.len() == 0 {
-                        return ControlFlow::Break(Some(matcher.replacement.clone()));
+                        return ControlFlow::Break(matcher.replacement.clone());
                     }
-                } else {
-                    // TODO metavariable stuck
-                    patterns.remove(i);
+                    recursive.push(matcher);
                 }
-            }  else {
-                wildcards.push(patterns.remove(i));
             }
         }
 
         if let Some(ordering) = ordering {
             for &i in ordering {
                 let arg = self.0.arg(i, Entry::vars(next_u64()), owned_linked);
-                arg.whnf(owned_linked, false).reduce(patterns, owned_linked)?;
-                if patterns.is_empty() { break; }
+                arg.whnf(owned_linked).reduce(&mut recursive, owned_linked)?;
+                if recursive.is_empty() { break; }
             }
         }
 
-        patterns.append(&mut wildcards); // TODO this changes the order
+        patterns.append(&mut recursive); // TODO this changes the order
         ControlFlow::Continue(())
     }
 }

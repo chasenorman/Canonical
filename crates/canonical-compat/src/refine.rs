@@ -143,8 +143,7 @@ async fn assign(
         let Some(Some((assn, eqns, _))) = test(
             db,
             meta.borrow().gamma.sub_es(db.0).linked.unwrap(),
-            meta.clone(),
-            false,
+            meta.clone()
         ) else { break; };
 
         meta.borrow_mut().assign(assn, eqns);
@@ -213,7 +212,7 @@ async fn canonical(State(state): State<Arc<Mutex<AppState>>>) -> Json<serde_json
         return Json(json!({}))
     };
     let meta = Meta::try_clone(state.current.downgrade()).unwrap().0;
-    let prover = Prover { next_root: meta.downgrade(), meta, program_synthesis: false };
+    let prover = Prover { next_root: meta.downgrade(), meta };
 
     if let Some(term) = canonical_simple(prover) {
         let prev = mem::replace(&mut state.current, term);
@@ -232,7 +231,7 @@ async fn canonical1(State(state): State<Arc<Mutex<AppState>>>, Json(solve1) : Js
     let (meta, map) = Meta::try_clone(current.clone()).unwrap();
     let next_root = map.get(&find_with_id(current, solve1.meta_id).unwrap()).unwrap().clone();
 
-    let prover = Prover { next_root, meta, program_synthesis: false };
+    let prover = Prover { next_root, meta };
     if let Some(term) = canonical_simple(prover) {
         let prev = mem::replace(&mut state.current, term);
         state.redo.clear();
@@ -286,7 +285,7 @@ fn find_autofill(meta: W<Meta>) -> Option<(W<Meta>, DeBruijnIndex)> {
     match &meta.borrow().assignment {
         None => {
             let domain: Vec<(DeBruijnIndex, W<Linked>)> = meta.borrow().gamma.iter().filter(|(db, linked)| {
-                test(db.clone(), linked.clone(), meta.clone(), false).is_some_and(|o| o.is_some())
+                test(db.clone(), linked.clone(), meta.clone()).is_some_and(|o| o.is_some())
             }).collect();
 
             if domain.len() == 1 {
