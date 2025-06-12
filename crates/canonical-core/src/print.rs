@@ -24,7 +24,7 @@ impl fmt::Display for Term {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut owned_linked = Vec::new();
         // prints the reduced form. 
-        let whnf = self.whnf(&mut owned_linked);
+        let whnf = self.whnf(&mut owned_linked, &mut ());
         let needs_parens = self.base.borrow().bindings.borrow().needs_parens() || whnf.needs_parens();
         if needs_parens { write!(f, "(")? }
         self.base.borrow().bindings.borrow().fmt(f)?;
@@ -73,7 +73,7 @@ impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let codomain = self.codomain();
         let mut owned_linked = Vec::new();
-        let whnf = codomain.whnf(&mut owned_linked);
+        let whnf = codomain.whnf(&mut owned_linked, &mut ());
         let needs_parens = codomain.base.borrow().bindings.borrow().needs_parens() || whnf.needs_parens();
         if needs_parens { write!(f, "(")? }
         codomain.base.borrow().bindings.borrow().fmt(f)?;

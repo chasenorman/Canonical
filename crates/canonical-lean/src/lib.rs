@@ -1,3 +1,4 @@
+use std::env::consts;
 // https://github.com/leanprover/lean4/blob/master/src/include/lean/lean.h
 use std::ffi::{CStr, CString, c_char, c_void};
 use canonical_compat::ir::*;
@@ -156,18 +157,18 @@ fn to_option(o: *const LeanOption) -> Option<*const LeanObject> {
     }
 }
 
-// fn to_lean_option(opt: &Option<*const LeanObject>) -> *const LeanOption {
-//     unsafe {
-//         match opt {
-//             None => lean_box(0) as *const LeanOption,
-//             Some(x) => {
-//                 let o = lean_alloc_ctor(1, 1, 0) as *mut LeanOption;
-//                 (*o).val = *x;
-//                 o
-//             }
-//         }
-//     }
-// }
+fn to_lean_option(opt: &Option<*const LeanObject>) -> *const LeanOption {
+    unsafe {
+        match opt {
+            None => lean_box(0) as *const LeanOption,
+            Some(x) => {
+                let o = lean_alloc_ctor(1, 1, 0) as *mut LeanOption;
+                (*o).val = *x;
+                o
+            }
+        }
+    }
+}
 
 fn lean_alloc_ctor(tag: usize, num_objs: usize, scalar_sz: usize) -> *mut LeanCtorObject {
     assert!(tag <= 244);
@@ -211,7 +212,7 @@ pub struct LeanRule {
     m_header: LeanObject,
     lhs: *const LeanTerm,
     rhs: *const LeanTerm,
-    name: *const LeanStringObject
+    name: *const LeanOption
 }
 
 fn to_ir_rule(r: *const LeanRule) -> IRRule {
@@ -219,7 +220,7 @@ fn to_ir_rule(r: *const LeanRule) -> IRRule {
         IRRule {
             lhs: to_ir_term((*r).lhs),
             rhs: to_ir_term((*r).rhs),
-            name: to_string((*r).name)
+            name: to_option((*r).name).map(|n| to_string(n as *const LeanStringObject))
         }
     }
 }
@@ -229,7 +230,7 @@ fn to_lean_rule(r: &IRRule) -> *const LeanRule {
         let o = lean_alloc_ctor(0, 3, 0) as *mut LeanRule;
         (*o).lhs = to_lean_term(&r.lhs);
         (*o).rhs = to_lean_term(&r.rhs);
-        (*o).name = to_lean_string(&r.name);
+        (*o).name = to_lean_option(&r.name.as_ref().map(|n| to_lean_string(n) as *const LeanObject));
         o
     }
 }

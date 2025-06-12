@@ -42,7 +42,7 @@ pub fn test(head: DeBruijnIndex, curr: W<Linked>, mut meta: W<Meta>) -> Option<O
 
     meta.borrow_mut().assignment = Some(Assignment {
         head, args, bind: var_type.2.clone(), changes: Vec::new(), _owned_linked,
-        has_rigid_type: matches!(var_type.codomain().whnf(&mut Vec::new()).1, Head::Var(_)),
+        has_rigid_type: matches!(var_type.codomain().whnf(&mut Vec::new(), &mut ()).1, Head::Var(_)),
         var_type: Some(var_type.clone()),
     });
 

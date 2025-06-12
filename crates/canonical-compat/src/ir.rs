@@ -24,7 +24,7 @@ pub struct IRVar {
 pub struct IRRule {
     pub lhs: IRTerm,
     pub rhs: IRTerm,
-    pub name: String
+    pub name: Option<String>
 }
 
 /// A let declaration, with a variable and value. -/
@@ -67,19 +67,19 @@ impl IRVar {
 }
 
 fn get_rules(term: &Term) -> Vec<String> {
-    let mut rules = Some(Vec::new());
+    let mut attribution = Vec::new();
     let mut owned_linked = Vec::new();
-    _get_rules(term, &mut rules, &mut owned_linked);
-    rules.unwrap()
+    _get_rules(term, &mut attribution, &mut owned_linked);
+    attribution
 }
 
-fn _get_rules(term: &Term, rules: &mut Option<Vec<String>>, owned_linked: &mut Vec<S<Linked>>) {
-    let whnf = term._whnf(owned_linked, rules);
+fn _get_rules(term: &Term, attribution: &mut Vec<String>, owned_linked: &mut Vec<S<Linked>>) {
+    let whnf = term.whnf(owned_linked, attribution);
     if whnf.0.base.borrow().assignment.is_some() {
         let len = whnf.0.base.borrow().assignment.as_ref().unwrap().args.len();
         for i in 0..len {
             let arg = whnf.0.arg(i, Entry::vars(next_u64()), owned_linked);
-            _get_rules(&arg, rules, owned_linked);
+            _get_rules(&arg, attribution, owned_linked);
         }
     }
 }

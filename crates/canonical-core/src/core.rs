@@ -162,9 +162,9 @@ impl Equation {
               owned_linked: &mut Vec<S<Linked>>) -> bool {
         if owned_linked.len() > 1000 { return false }
         // Reduce both sides of the equation.
-        match self.premise.whnf(owned_linked) {
+        match self.premise.whnf(owned_linked, &mut ()) {
             WHNF(premise, Head::Var(lhs)) => {
-                match self.goal.whnf(owned_linked) {
+                match self.goal.whnf(owned_linked, &mut ()) {
                     WHNF(goal, Head::Var(rhs)) => {
                         // If the head symbols are not equal, the equation is violated.
                         if !lhs.eq(&rhs) { return false }
@@ -248,7 +248,7 @@ pub struct Symbol {
 pub struct Rule {
     pub pattern: Vec<Option<Symbol>>,
     pub replacement: S<Meta>,
-    pub name: String
+    pub name: Option<String>
 }
 
 /// The `name` and `value` of a variable in the original input problem.
@@ -404,7 +404,23 @@ pub struct WHNF(pub Term, pub Head);
 pub struct Matcher<'a> {
     pub pattern: Iter<'a, Option<Symbol>>,
     pub replacement: Term,
-    pub name: &'a String
+    pub rule: &'a Rule
+}
+
+pub trait Attribution {
+    fn attribute(&mut self, s: &Rule);
+}
+
+impl Attribution for () {
+    fn attribute(&mut self, _: &Rule) {}
+}
+
+impl Attribution for Vec<String> {
+    fn attribute(&mut self, s: &Rule) {
+        if let Some(name) = &s.name {
+            self.push(name.clone());
+        }
+    }
 }
 
 impl Term {
@@ -415,12 +431,7 @@ impl Term {
     }
 
     /// Computes the weak head normal form. 
-    pub fn whnf(&self, owned_linked: &mut Vec<S<Linked>>) -> WHNF {
-        self._whnf(owned_linked, &mut None)
-    }
-
-    /// Computes the weak head normal form. 
-    pub fn _whnf(&self, owned_linked: &mut Vec<S<Linked>>, rules: &mut Option<Vec<String>>) -> WHNF {
+    pub fn whnf<C: Attribution>(&self, owned_linked: &mut Vec<S<Linked>>, attribution: &mut C) -> WHNF {
         if let Some(assn) = &self.base.borrow().assignment {
             let es = self.es.sub_es(assn.head.0);
 
@@ -429,7 +440,7 @@ impl Term {
                 if let Some(subst) = &es.linked.as_ref().unwrap().borrow().node.entry.subst {
                     // If there is a substitution, and the index is a parameter, return the associated term in the substitution. 
                     let term = subst.get(i, Entry::subst(Subst(WVec::new(&assn.args), self.es.clone())), owned_linked);
-                    return term._whnf(owned_linked, rules);
+                    return term.whnf(owned_linked, attribution);
                 }
             }
 
@@ -440,13 +451,11 @@ impl Term {
                 let mut matchers = bind.borrow().rules.iter().map(|rule| Matcher {
                     pattern: rule.pattern.iter(),
                     replacement: Term { base: rule.replacement.downgrade(), es: es.clone() },
-                    name: &rule.name
+                    rule: &rule
                 }).collect();
-                if let ControlFlow::Break((term, name)) = whnf.reduce(&mut matchers, owned_linked, rules) {
-                    if let Some(rules) = rules {
-                        rules.push(name.clone());
-                    }
-                    return term._whnf(owned_linked, rules);
+                if let ControlFlow::Break((term, rule)) = whnf.reduce(&mut matchers, owned_linked, attribution) {
+                    attribution.attribute(rule);
+                    return term.whnf(owned_linked, attribution);
                 }
             }
             whnf
@@ -457,7 +466,7 @@ impl Term {
 }
 
 impl <'a> WHNF {
-    fn reduce(&self, patterns: &mut Vec<Matcher<'a>>, owned_linked: &mut Vec<S<Linked>>, rules: &mut Option<Vec<String>>) -> ControlFlow<(Term, &'a String)> {
+    fn reduce<C: Attribution>(&self, patterns: &mut Vec<Matcher<'a>>, owned_linked: &mut Vec<S<Linked>>, attribution: &mut C) -> ControlFlow<(Term, &'a Rule)> {
         let Head::Var(var) = &self.1 else {
             patterns.retain_mut(|matcher| 
                 matcher.pattern.next().unwrap().is_none()
@@ -477,7 +486,7 @@ impl <'a> WHNF {
                         bindings: symbol.bindings.downgrade()
                     }, owned_linked);
                     if matcher.pattern.len() == 0 {
-                        return ControlFlow::Break((matcher.replacement.clone(), matcher.name));
+                        return ControlFlow::Break((matcher.replacement.clone(), matcher.rule));
                     }
                     recursive.push(matcher);
                 }
@@ -487,7 +496,7 @@ impl <'a> WHNF {
         if let Some(ordering) = ordering {
             for &i in ordering {
                 let arg = self.0.arg(i, Entry::vars(next_u64()), owned_linked);
-                arg._whnf(owned_linked, rules).reduce(&mut recursive, owned_linked, rules)?;
+                arg.whnf(owned_linked, attribution).reduce(&mut recursive, owned_linked, attribution)?;
                 if recursive.is_empty() { break; }
             }
         }
