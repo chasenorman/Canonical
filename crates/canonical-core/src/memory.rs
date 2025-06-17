@@ -13,7 +13,7 @@ pub struct W<T> {
 
 /// Weak reference to the contents of a vector.
 pub struct WVec<T> {
-    ptr: *const [T]
+    pub ptr: *const [T]
 }
 
 impl<T> S<T> {
@@ -75,9 +75,9 @@ impl<T> WVec<T> {
     // }
 
     // Length of the underlying slice.
-    // pub fn len(&self) -> usize {
-    //     unsafe { (*self.ptr).len() }
-    // }
+    pub fn len(&self) -> usize {
+        unsafe { (*self.ptr).len() }
+    }
 }
 
 impl<T> std::ops::Index<usize> for WVec<T> {

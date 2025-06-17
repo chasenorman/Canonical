@@ -184,3 +184,30 @@ pub fn to_rules(rules: &Vec<IRRule>, es: &ES, owned_linked: &mut Vec<S<Linked>>,
         }
     }).collect()
 }
+
+
+fn to_redex(term: &IRTerm, es: &ES, build: &mut Vec<Instruction>) {
+    if let Some((_, bind)) = es.index_of(&term.head) {
+        build.push(Instruction {
+            bind: bind.clone(),
+            parents: 0,
+            child: 0  
+        });
+        for (i, arg) in term.args.iter().enumerate() {
+            to_redex(arg, es, build);
+            build.last_mut().unwrap().child = i + 1;
+        }
+        build.last_mut().unwrap().parents += 1;
+    }
+}
+
+
+pub fn to_redexes(rules: &Vec<IRRule>, es: &ES) -> Vec<Vec<Instruction>> {
+    rules.iter().filter_map(|rule| {
+        rule.is_redex.then(|| {
+            let mut build: Vec<Instruction> = Vec::new();
+            to_redex(&rule.lhs, es, &mut build);
+            build
+        })
+    }).collect()
+}

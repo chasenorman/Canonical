@@ -1,25 +1,33 @@
 import Canonical
 import Lean
-import Mathlib
 
-open Lean Meta
+inductive MyNat
+| zero : MyNat
+| succ : MyNat → MyNat
 
+open MyNat
 
-example  (a b : Nat) : a + b = b + a := by
+def add : MyNat → MyNat → MyNat
+| a, zero => a
+| a, succ b => succ (add a b)
+
+@[simp] theorem zero_add (a : MyNat) : add zero a = a := by
   exact
-    Nat.rec (motive := fun t ↦ t + b = b + t)
-      (by
-        simp only [Nat.add_zero, Nat.zero_add]
-        -- exact Eq.refl b
-        )
-      (fun n n_ih ↦
-        by simpa only [Nat.add_succ, Nat.succ_add] using Eq.rec (motive := fun a t ↦ (n + b).succ = a.succ) (by rfl) n_ih) a
+    rec (motive := fun t ↦ add zero t = t) (by simp [add.eq_1] <;> exact Eq.refl zero)
+      (fun a a_ih ↦ by simp [add.eq_2] <;> exact a_ih) a
 
--- @[PrettyPrinter.Delaborator.delabForall]
-#check PrettyPrinter.Delaborator.delabPProdMk
+@[simp] theorem succ_add (a b : MyNat) : add (succ a) b = succ (add a b) := by
+  exact
+    rec (motive := fun t ↦ add a.succ t = (add a t).succ) (by simp [add.eq_1] <;> exact Eq.refl a)
+      (fun a_1 a_ih ↦ by simp [add.eq_2] <;> exact a_ih) b
 
+theorem add_comm (a b : MyNat) : add a b = add b a := by
+  exact
+    rec (motive := fun t ↦ add t b = add b t) (by simp [add.eq_1] <;> exact Eq.refl b)
+      (fun a a_ih ↦ by simp [add.eq_2] <;> exact a_ih) a
 
--- set_option pp.explicit true
-#check add_comm
-
-example : 0 + n = n := by canonical
+@[simp] theorem add_assoc (a b c : MyNat) : add (add a b) c = add a (add b c) := by
+  exact
+    rec (motive := fun t ↦ add (add a b) t = add a (add b t))
+      (by simp [add.eq_1] <;> exact Eq.refl (add a b))
+      (fun a_1 a_ih ↦ by simp [add.eq_2] <;> exact a_ih) c

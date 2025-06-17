@@ -7,7 +7,7 @@ use std::fs::File;
 use string_interner::{DefaultBackend, StringInterner};
 use std::sync::Mutex;
 use std::sync::LazyLock;
-use crate::reduction::to_rules;
+use crate::reduction::*;
 use canonical_core::stats::SearchInfo;
 
 /// We use String interning for the names of inductive types in the `Value`, for fast equality checking.
@@ -24,7 +24,8 @@ pub struct IRVar {
 pub struct IRRule {
     pub lhs: IRTerm,
     pub rhs: IRTerm,
-    pub name: Option<String>
+    pub name: Option<String>,
+    pub is_redex: bool
 }
 
 /// A let declaration, with a variable and value. -/
@@ -61,6 +62,7 @@ impl IRVar {
             name: self.name.clone(),
             irrelevant: self.irrelevant,
             rules: Vec::new(),
+            redexes: Vec::new(),
             owned_bindings: Vec::new()
         }
     }
@@ -122,6 +124,7 @@ impl IRTerm {
         for (i, d) in self.lets.iter().enumerate() {
             let mut owned_bindings = Vec::new();
             bindings.borrow_mut().lets[i].borrow_mut().rules = to_rules(&d.rules, &es, owned_linked, &mut owned_bindings);
+            bindings.borrow_mut().lets[i].borrow_mut().redexes = to_redexes(&d.rules, &es);
             bindings.borrow_mut().lets[i].borrow_mut().owned_bindings = owned_bindings;
         }
         (es, bindings)
@@ -139,10 +142,11 @@ impl IRTerm {
         let args = self.args.iter().map(|t| S::new(t.to_term(&es))).collect();
  
         Meta {
-            assignment: Some(Assignment { head, args, bind, changes: Vec::new(), _owned_linked: owned_linked, has_rigid_type: true, var_type: None }),
+            assignment: Some(Assignment { head, args, bind, changes: Vec::new(), redex_changes: Vec::new(), _owned_linked: owned_linked, has_rigid_type: true, var_type: None }),
             typ: None,
             gamma: es,
             equations: Vec::new(),
+            redex_constraints: Vec::new(),
             bindings: bindings.downgrade(),
             _owned_bindings: Some(bindings),
             stats: SearchInfo::new(),

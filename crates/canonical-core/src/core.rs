@@ -59,6 +59,7 @@ pub struct Assignment {
 
     /// `changes` and `_owned_linked` allow us to return to the previous state during backtracking.
     pub changes: Vec<W<Meta>>,
+    pub redex_changes: Vec<W<Meta>>,
     pub _owned_linked: Vec<S<Linked>>, // never accessed, only used for ownership.
 
     /// True if the codomain of `head` is not stuck on a metavariable, for heuristics.
@@ -74,6 +75,8 @@ pub struct Meta {
     pub gamma: ES,
     /// Equations that are stuck on this metavariable.
     pub equations: Vec<Equation>,
+    pub redex_constraints: Vec<RedexConstraint>,
+
     /// The `Type` of this metavariable.
     pub typ: Option<Type>,
     /// The bindings introduced by this term.
@@ -98,6 +101,7 @@ impl Meta {
             assignment: None,
             gamma: typ.1.clone(),
             equations: Vec::new(),
+            redex_constraints: Vec::new(),
             bindings: typ.0.borrow().codomain.borrow().bindings.clone(),
             _owned_bindings: None,
             stats: SearchInfo::new(),
@@ -111,36 +115,54 @@ impl Meta {
 
     /// Checks that the assignment made to `self` does not violate an equation.
     /// If successful, outputs the new equations and updates the `changes` of the assignment.
-    pub fn test_assignment(&mut self) -> Option<Vec<Equation>> {
+    pub fn test_assignment(&mut self, this: W<Meta>) -> Option<(Vec<Equation>, Vec<RedexConstraint>)> {
         let mut eqns = Vec::new();
         let assn = self.assignment.as_mut().unwrap();
 
-        // check the type of `self` with the codomain of the `var_type`.
-        if (Equation { premise: assn.var_type.as_ref().unwrap().codomain(), goal: self.typ.as_ref().unwrap().codomain() }
-            .reduce(&mut eqns, &mut assn.changes, &mut assn._owned_linked)) {
-            // reduce existing equations
-            if self.equations.iter().all(|eq|
-                eq.reduce(&mut eqns, &mut assn.changes, &mut assn._owned_linked)
-            ) {
-                return Some(eqns)
-            }
-        }
-        None
+        // check the type of `self` with the codomain of the `var_type
+        if (!Equation { premise: assn.var_type.as_ref().unwrap().codomain(), goal: self.typ.as_ref().unwrap().codomain() }
+            .reduce(&mut eqns, &mut assn.changes, &mut assn._owned_linked)) { return None; }
+
+        let mut redex_constraints = Vec::new();
+
+        if !assn.bind.borrow().redexes.iter().all(|redex|
+            RedexConstraint {
+                instructions: WVec::new(redex),
+                position: 0
+            }.reduce(&mut redex_constraints, &mut assn.redex_changes, this.clone())
+        ) { return None; }
+
+        if !self.redex_constraints.iter().all(|redex| 
+            redex.reduce(&mut redex_constraints, &mut assn.redex_changes, this.clone())
+        ) { return None }
+
+        if !self.equations.iter().all(|eq|
+            eq.reduce(&mut eqns, &mut assn.changes, &mut assn._owned_linked)
+        ) { return None }
+
+        return Some((eqns, redex_constraints));
     }
 
     /// Perform an (already tested) assignment.
-    pub fn assign(&mut self, mut assn: Assignment, eqns: Vec<Equation>) {
+    pub fn assign(&mut self, mut assn: Assignment, eqns: Vec<Equation>, redex_constraints: Vec<RedexConstraint>) {
         // store equations with their stuck metavaraible
         for (item, slot) in eqns.into_iter().zip(assn.changes.iter_mut()) {
             slot.borrow_mut().equations.push(item)
+        }
+        for (item, slot) in redex_constraints.into_iter().zip(assn.redex_changes.iter_mut()) {
+            slot.borrow_mut().redex_constraints.push(item)
         }
         self.assignment = Some(assn);
     }
 
     /// Unassign the metavariable, returning equations to their pre-assignment state.
     pub fn unassign(&mut self) {
-        for meta in self.assignment.as_mut().unwrap().changes.iter_mut() {
+        let assn = self.assignment.as_mut().unwrap();
+        for meta in assn.changes.iter_mut() {
             meta.borrow_mut().equations.pop();
+        }
+        for meta in assn.redex_changes.iter_mut() {
+            meta.borrow_mut().redex_constraints.pop();
         }
         self.assignment = None;
     }
@@ -154,6 +176,41 @@ pub struct Equation {
     /// `goal` is a subterm of the `codomain` of the `Type` of a metavariable
     pub goal: Term
 }
+
+#[derive(Clone)]
+pub struct RedexConstraint {
+    pub instructions: WVec<Instruction>,
+    pub position: usize
+}
+
+impl RedexConstraint {
+    fn reduce(&self, redex_constraints: &mut Vec<RedexConstraint>, redex_changes: &mut Vec<W<Meta>>, mut blame: W<Meta>) -> bool {
+        let mut i = self.position;
+        loop {
+            let Some(assn) = &blame.borrow().assignment else {
+                redex_constraints.push(RedexConstraint {
+                    instructions: self.instructions.clone(),
+                    position: i
+                });
+                redex_changes.push(blame);
+                return true
+            };
+
+            if !assn.bind.eq(&self.instructions[i].bind) {
+                return true;
+            }
+            if i == self.instructions.len() - 1 {
+                return false;
+            }
+            for _ in 0..self.instructions[i].parents {
+                blame = blame.borrow().parent.as_ref().unwrap().clone();
+            }
+            blame = blame.borrow().assignment.as_ref().unwrap().args[self.instructions[i].child].downgrade();
+            i += 1;
+        }
+    }
+}
+
 
 impl Equation {
     /// Break down the equation into equations that are stuck on metavariables, added to `equations`.
@@ -239,6 +296,13 @@ impl<T> Indexed<T> {
         Box::new(params_iter.chain(lets_iter))
     }
 }
+
+pub struct Instruction {
+    pub bind: W<Bind>,
+    pub parents: u32,
+    pub child: usize
+}
+
 pub struct Symbol {
     pub bind: W<Bind>,
     pub children: Vec<usize>,
@@ -257,6 +321,7 @@ pub struct Bind {
     // Proof irrelevance, currently unused.
     pub irrelevant: bool,
     pub rules: Vec<Rule>,
+    pub redexes: Vec<Vec<Instruction>>,
 
     pub owned_bindings: Vec<S<Indexed<S<Bind>>>>
 }
@@ -267,6 +332,7 @@ impl Bind {
             name,
             irrelevant: false,
             rules: Vec::new(),
+            redexes: Vec::new(),
             owned_bindings: Vec::new()
         }
     }
@@ -524,6 +590,7 @@ impl TypeBase {
                 typ: None,
                 gamma: ES::new(),
                 equations: Vec::new(),
+                redex_constraints: Vec::new(),
                 bindings: self.types.borrow()[Index::Param(i)].as_ref().unwrap().borrow().codomain.borrow().bindings.clone(),
                 _owned_bindings: None,
                 stats: SearchInfo::new(),
