@@ -30,15 +30,3 @@ theorem add_comm (a b : MyNat) : add a b = add b a := by
   exact
     rec (motive := fun t ↦ add (add a b) t = add a (add b t)) (by simp [add.eq_1])
       (fun a_1 a_ih ↦ by simpa [MyNat.succ.injEq, add.eq_2] using a_ih) c
-
-theorem add_comm' (a b : Nat) : a + b = b + a := by
-  exact
-    Nat.rec (motive := fun t ↦ t.add b = b.add t)
-      (by
-        simp [Nat.zero_add] <;>
-          exact
-              Nat.rec (motive := fun t ↦ t = t) (Eq.refl Nat.zero) (fun n n_ih ↦ Eq.refl n.succ) b)
-      (fun n n_ih ↦ by
-        simp [Nat.succ_add] <;>
-          exact Eq.rec (motive := fun a t ↦ (n.add b).succ = a.succ) (Eq.refl (n.add b).succ) n_ih)
-      a

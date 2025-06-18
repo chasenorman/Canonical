@@ -163,7 +163,7 @@ impl IRTerm {
         let lets = bindings.borrow().lets.iter().map(|b| 
             IRLet { var: IRVar { name: b.borrow().name.clone(), irrelevant: false }, rules: Vec::new() }).collect();
         let goal_rules = term.base.borrow().typ.as_ref().map(|typ| get_rules(&typ.codomain())).unwrap_or_default();
-
+        // TODO special WHNF that does not get stuck and does not unfold definitions
         let IRTerm { params: _, lets: _, head, args, premise_rules, goal_rules: _ } = IRTerm::from_body(term.whnf(&mut owned_linked, &mut ()), html);
         IRTerm { params, lets, head, args, premise_rules, goal_rules }
     }
@@ -173,8 +173,11 @@ impl IRTerm {
             
         match &head {
             Head::Meta(meta) => {
-                let head = if html { Self::meta_html(meta.clone()) } else { "?".to_string() + &meta.borrow().typ.as_ref().unwrap().2.borrow().name };
-                IRTerm { params: Vec::new(), lets: Vec::new(), head, args: Vec::new(), premise_rules: Vec::new(), goal_rules: Vec::new() }
+                if html {
+                    IRTerm { params: Vec::new(), lets: Vec::new(), head: Self::meta_html(meta.clone()), args: Vec::new(), premise_rules: Vec::new(), goal_rules: Vec::new() }
+                } else {
+                    Self::from_meta(whnf, meta.clone())
+                }
             }
             Head::Var(var) => {
                 let mut _owned_bindings = Vec::new();
@@ -198,6 +201,34 @@ impl IRTerm {
                     goal_rules: Vec::new()
                 }
             }
+        }
+    }
+
+    fn from_meta(term: Term, stuck: W<Meta>) -> IRTerm {
+        let mut args = Vec::new();
+        if !stuck.borrow().bindings.borrow().params.is_empty() {
+            let mut _owned_bindings = Vec::new();
+            let subst = term.es.linked.as_ref().unwrap().borrow().node.entry.subst.as_ref().unwrap();
+            for i in 0..subst.0.len() {
+                let mut owned_linked = Vec::new();
+                let arg = subst.0[i].downgrade();
+                let bindings = S::new(disambiguate(arg.borrow().bindings.clone(), &subst.1));
+                let wbindings = bindings.downgrade();
+                let es = subst.1.append(Node {
+                    entry: Entry::vars(next_u64()),
+                    bindings: wbindings.clone()
+                }, &mut owned_linked);
+                _owned_bindings.push(bindings);
+                args.push(IRTerm::from_lambda(Term { base: arg, es }, wbindings.clone(), false))
+            }
+        }
+        IRTerm {
+            params: Vec::new(),
+            lets: Vec::new(),
+            head: "?".to_string() + &stuck.borrow().typ.as_ref().unwrap().2.borrow().name,
+            args,
+            premise_rules: Vec::new(),
+            goal_rules: Vec::new()
         }
     }
 
