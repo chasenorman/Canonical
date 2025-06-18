@@ -1,7 +1,7 @@
 use canonical_core::core::*;
 use canonical_core::memory::{S, W, WVec};
 use canonical_core::search::test;
-use std::fmt;
+use std::{default, fmt};
 use serde::{Serialize, Deserialize};
 use std::fs::File;
 use string_interner::{DefaultBackend, StringInterner};
@@ -207,19 +207,20 @@ impl IRTerm {
     fn from_meta(term: Term, stuck: W<Meta>) -> IRTerm {
         let mut args = Vec::new();
         if !stuck.borrow().bindings.borrow().params.is_empty() {
-            let mut _owned_bindings = Vec::new();
-            let subst = term.es.linked.as_ref().unwrap().borrow().node.entry.subst.as_ref().unwrap();
-            for i in 0..subst.0.len() {
-                let mut owned_linked = Vec::new();
-                let arg = subst.0[i].downgrade();
-                let bindings = S::new(disambiguate(arg.borrow().bindings.clone(), &subst.1));
-                let wbindings = bindings.downgrade();
-                let es = subst.1.append(Node {
-                    entry: Entry::vars(next_u64()),
-                    bindings: wbindings.clone()
-                }, &mut owned_linked);
-                _owned_bindings.push(bindings);
-                args.push(IRTerm::from_lambda(Term { base: arg, es }, wbindings.clone(), false))
+            if let Some(subst) = &term.es.linked.as_ref().unwrap().borrow().node.entry.subst {
+                let mut _owned_bindings = Vec::new();
+                for i in 0..subst.0.len() {
+                    let mut owned_linked = Vec::new();
+                    let arg = subst.0[i].downgrade();
+                    let bindings = S::new(disambiguate(arg.borrow().bindings.clone(), &subst.1));
+                    let wbindings = bindings.downgrade();
+                    let es = subst.1.append(Node {
+                        entry: Entry::vars(next_u64()),
+                        bindings: wbindings.clone()
+                    }, &mut owned_linked);
+                    _owned_bindings.push(bindings);
+                    args.push(IRTerm::from_lambda(Term { base: arg, es }, wbindings.clone(), false))
+                }
             }
         }
         IRTerm {
@@ -249,7 +250,7 @@ impl IRTerm {
                 return Some(format!("<button class='option' onclick='assign({meta_id}, {debruijn}, {index}, {def})'>{name}</button>"));
             }
             None
-        }).reduce(|a, b| format!("{a}</br>{b}")).unwrap_or_default();
+        }).reduce(|a, b| format!("{a}</br>{b}")).unwrap_or("<div class='fail'>No Options</div>".to_string());
         let mut owned_linked = Vec::new();
         let typ = IRTerm::from_body(meta.borrow().typ.as_ref().unwrap().codomain().whnf(&mut owned_linked, &mut ()), false);
 
@@ -260,7 +261,7 @@ impl IRTerm {
                 let lhs = IRTerm::from_body(eqn.premise.whnf(&mut owned_linked, &mut ()), false);
                 let rhs = IRTerm::from_body(eqn.goal.whnf(&mut owned_linked, &mut ()), false);
                 format!("<div class='constraint'>{lhs} ≡ {rhs}</div>")
-            }).reduce(|a, b| format!("{a}</br>{b}")).unwrap_or_default();
+            }).fold("".to_string(), |a, b| a + &b);
             format!("<div class='constraints'>{inner}</div>")
         };
 
