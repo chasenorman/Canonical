@@ -15,6 +15,8 @@
             --listBackground: rgb(240, 240, 240);
             --listBorder: rgb(208, 208, 210);
             --listHover: rgb(202, 222, 247);
+            --infoBackground: rgb(230, 230, 230);
+            --infoSeparator: rgb(178, 178, 178);
 
             --optionBackground: rgb(240, 240, 240);
             --optionDisabled: rgb(127, 127, 127);
@@ -89,17 +91,17 @@
 
         .type {
             padding: 5px 10px;
-            background-color: rgb(230, 230, 230);
+            background-color: var(--infoBackground);
             border: 1px var(--listBorder) solid;
-            border-top: 1px rgb(178, 178, 178) solid;
+            border-top: 1px var(--infoSeparator) solid;
             border-radius: 0 0 8.5px 8.5px;
             cursor: default;
         }
 
         .constraints {
             padding: 0 5px;
-            background-color: rgb(230, 230, 230);
-            border-top: 1px rgb(178, 178, 178) solid;
+            background-color: var(--infoBackground);
+            border-top: 1px var(--infoSeparator) solid;
             border-left: 1px var(--listBorder) solid;
             border-right: 1px var(--listBorder) solid;
             cursor: default;

@@ -225,7 +225,7 @@ impl IRTerm {
         IRTerm {
             params: Vec::new(),
             lets: Vec::new(),
-            head: "?".to_string() + &stuck.borrow().typ.as_ref().unwrap().2.borrow().name,
+            head: "?&NoBreak;".to_string() + &stuck.borrow().typ.as_ref().unwrap().2.borrow().name,
             args,
             premise_rules: Vec::new(),
             goal_rules: Vec::new()
@@ -233,7 +233,7 @@ impl IRTerm {
     }
 
     fn meta_html(meta: W<Meta>) -> String {
-        let varname = "?".to_string() + &meta.borrow().typ.as_ref().unwrap().2.borrow().name;
+        let varname = "?&NoBreak;".to_string() + &meta.borrow().typ.as_ref().unwrap().2.borrow().name;
         let meta_id = meta.borrow() as *const Meta as usize;
 
         let options = meta.borrow().gamma.iter().filter_map(|(db, linked)| {

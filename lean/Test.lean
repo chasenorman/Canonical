@@ -22,9 +22,7 @@ def add : MyNat → MyNat → MyNat
       (fun a_1 a_ih ↦ by simpa [MyNat.succ.injEq, add.eq_2] using a_ih) b
 
 theorem add_comm (a b : MyNat) : add a b = add b a := by
-  exact
-    rec (motive := fun t ↦ add t b = add b t) (by simp [add.eq_1, zero_add] <;> exact Eq.refl b)
-      (fun a a_ih ↦ by simp [MyNat.succ.injEq, add.eq_2, succ_add] <;> exact a_ih) a
+  canonical +refine
 
 @[simp] theorem add_assoc (a b c : MyNat) : add (add a b) c = add a (add b c) := by
   exact
