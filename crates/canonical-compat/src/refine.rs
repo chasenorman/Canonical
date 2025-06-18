@@ -59,6 +59,7 @@ pub struct AppState {
     pub redo: Vec<S<Meta>>,
     /// Whether to automatically make forced moves. 
     pub autofill: bool,
+    pub constraints: bool,
 
     // For ownership purposes.
     pub _owned_linked: Vec<S<Linked>>,
@@ -109,7 +110,8 @@ async fn term(State(state): State<Arc<Mutex<AppState>>>) -> Json<serde_json::Val
         "next": next, 
         "undo": !state.undo.is_empty(),
         "redo": !state.redo.is_empty(),
-        "autofill": state.autofill
+        "autofill": state.autofill,
+        "constraints": state.constraints
     }));
 }
 
@@ -321,6 +323,8 @@ async fn set(State(state): State<Arc<Mutex<AppState>>>, Json(kv) : Json<KV>) -> 
 
     if kv.key == "autofill" {
         state.autofill = kv.value;
+    } else if kv.key == "constraints" {
+        state.constraints = kv.value;
     }
     Json(json!({}))
 }

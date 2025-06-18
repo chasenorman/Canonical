@@ -97,12 +97,20 @@
         }
 
         .constraints {
-            padding: 5px 10px;
+            padding: 0 5px;
             background-color: rgb(230, 230, 230);
             border-top: 1px rgb(178, 178, 178) solid;
             border-left: 1px var(--listBorder) solid;
             border-right: 1px var(--listBorder) solid;
             cursor: default;
+        }
+
+        .hide-constraints .constraints {
+            display: none;
+        }
+
+        .constraint {
+            padding: 5px;
         }
 
         .fail {
@@ -216,6 +224,8 @@
             document.getElementById("undo").disabled = !data.undo;
             document.getElementById("redo").disabled = !data.redo;
             document.getElementById("autofill").checked = data.autofill;
+            document.getElementById("constraints").checked = data.constraints;
+            document.body.classList.toggle('hide-constraints', !data.constraints);
             radios = Array.from(document.querySelectorAll('input[name="meta"]'));
             index = null;
             removeSelected();
@@ -309,6 +319,9 @@
             document.getElementById("autofill").addEventListener("change", async (e) => {
                 set("autofill", e.target.checked)
             });
+            document.getElementById("constraints").addEventListener("change", async (e) => {
+                set("constraints", e.target.checked)
+            });
         }
 
         document.addEventListener('keydown', (e) => {
@@ -377,6 +390,10 @@
             <label for="autofill" style="line-height:20px;">Autofill</label>
         </div>
         <button class="control" onclick="insert()">Insert</button>
+        <div class="control">
+            <input type="checkbox" id="constraints" name="constraints" style="height:15px; width:15px;">
+            <label for="constraints" style="line-height:20px;">Constraints</label>
+        </div>
     </div>
     <br>
     <form id="term"></form>

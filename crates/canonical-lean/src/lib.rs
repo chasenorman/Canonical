@@ -541,6 +541,7 @@ pub unsafe extern "C" fn refine(typ: *const LeanType) -> *const LeanResult {
         undo: Vec::new(),
         redo: Vec::new(),
         autofill: true,
+        constraints: false,
         _owned_linked: owned_linked,
         _owned_tb: tb_ref,
         _owned_bind: problem_bind

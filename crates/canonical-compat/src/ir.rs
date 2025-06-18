@@ -253,7 +253,18 @@ impl IRTerm {
         let mut owned_linked = Vec::new();
         let typ = IRTerm::from_body(meta.borrow().typ.as_ref().unwrap().codomain().whnf(&mut owned_linked, &mut ()), false);
 
-        let tooltiptext = format!("<div class='tooltiptext'><div class='provers'>{options}</div><div class='type'>{typ}</div></div>");
+        let constraints = if meta.borrow().equations.is_empty() {
+            "".to_string()
+        } else {
+            let inner = meta.borrow().equations.iter().map(|eqn| {
+                let lhs = IRTerm::from_body(eqn.premise.whnf(&mut owned_linked, &mut ()), false);
+                let rhs = IRTerm::from_body(eqn.goal.whnf(&mut owned_linked, &mut ()), false);
+                format!("<div class='constraint'>{lhs} ≡ {rhs}</div>")
+            }).reduce(|a, b| format!("{a}</br>{b}")).unwrap_or_default();
+            format!("<div class='constraints'>{inner}</div>")
+        };
+
+        let tooltiptext = format!("<div class='tooltiptext'><div class='provers'>{options}</div>{constraints}<div class='type'>{typ}</div></div>");
         let tooltip = format!("<div class='tooltip'><span class='meta'>{varname}</span>{tooltiptext}</div>");
         return format!("<label><input type='radio' name='meta' id='{meta_id}' value='{meta_id}'>{tooltip}</label>")
     }
