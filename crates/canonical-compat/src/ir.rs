@@ -157,24 +157,46 @@ impl IRTerm {
         }
     }
 
-    pub fn from_term(meta: W<Meta>, es: &ES) -> IRTerm {
-        let entry = Entry { params_id: next_u64(), lets_id: next_u64(), subst: None, context: None };
+    pub fn from_lambda(term: Term, bindings: W<Indexed<S<Bind>>>, html: bool) -> IRTerm {
         let mut owned_linked = Vec::new();
-        let bindings: S<Indexed<S<Bind>>> = S::new(disambiguate(meta.borrow().bindings.clone(), es));
-        let node = Node { entry , bindings: bindings.downgrade() };
-        let es = es.append(node, &mut owned_linked);
         let params = bindings.borrow().params.iter().map(|b| IRVar { name: b.borrow().name.clone(), irrelevant: false }).collect();
         let lets = bindings.borrow().lets.iter().map(|b| 
             IRLet { var: IRVar { name: b.borrow().name.clone(), irrelevant: false }, rules: Vec::new() }).collect();
-    
-        match &meta.borrow().assignment {
-            None => IRTerm { params, lets, head: Self::meta_html(meta), args: Vec::new(), premise_rules: Vec::new(), goal_rules: Vec::new() },
-            Some(assignment) => IRTerm {
-                params, lets,
-                head: es.sub_es(assignment.head.0).get_var(assignment.head.1).bind.borrow().name.clone(),
-                args: meta.borrow().assignment.as_ref().unwrap().args.iter().map(|m| IRTerm::from_term(m.downgrade(), &es)).collect(),
-                premise_rules: assignment.var_type.as_ref().map(|typ| get_rules(&typ.codomain())).unwrap_or_default(),
-                goal_rules: meta.borrow().typ.as_ref().map(|typ| get_rules(&typ.codomain())).unwrap_or_default()
+        let goal_rules = term.base.borrow().typ.as_ref().map(|typ| get_rules(&typ.codomain())).unwrap_or_default();
+
+        let IRTerm { params: _, lets: _, head, args, premise_rules, goal_rules: _ } = IRTerm::from_body(term.whnf(&mut owned_linked, &mut ()), html);
+        IRTerm { params, lets, head, args, premise_rules, goal_rules }
+    }
+
+    pub fn from_body(WHNF(whnf, head): WHNF, html: bool) -> IRTerm {
+        let mut owned_linked = Vec::new();
+            
+        match &head {
+            Head::Meta(meta) => {
+                let head = if html { Self::meta_html(meta.clone()) } else { "?".to_string() + &meta.borrow().typ.as_ref().unwrap().2.borrow().name };
+                IRTerm { params: Vec::new(), lets: Vec::new(), head, args: Vec::new(), premise_rules: Vec::new(), goal_rules: Vec::new() }
+            }
+            Head::Var(var) => {
+                let mut _owned_bindings = Vec::new();
+
+                let args = whnf.base.borrow().assignment.as_ref().unwrap().args.iter().map(|arg| {
+                    let bindings = S::new(disambiguate(arg.borrow().bindings.clone(), &whnf.es));
+                    let wbindings = bindings.downgrade();
+                    let es = whnf.es.append(Node {
+                        entry: Entry::vars(next_u64()),
+                        bindings: wbindings.clone()
+                    }, &mut owned_linked);
+                    _owned_bindings.push(bindings);
+                    IRTerm::from_lambda(Term { base: arg.downgrade(), es }, wbindings.clone(), html)
+                }).collect();
+
+                IRTerm {
+                    params: Vec::new(), lets: Vec::new(),
+                    head: var.bind.borrow().name.clone(),
+                    args,
+                    premise_rules: whnf.base.borrow().assignment.as_ref().unwrap().var_type.as_ref().map(|typ| get_rules(&typ.codomain())).unwrap_or_default(),
+                    goal_rules: Vec::new()
+                }
             }
         }
     }
@@ -197,8 +219,10 @@ impl IRTerm {
             }
             None
         }).reduce(|a, b| format!("{a}</br>{b}")).unwrap_or_default();
+        let mut owned_linked = Vec::new();
+        let typ = IRTerm::from_body(meta.borrow().typ.as_ref().unwrap().codomain().whnf(&mut owned_linked, &mut ()), false);
 
-        let tooltiptext = format!("<div class='provers tooltiptext'>{options}</div>");
+        let tooltiptext = format!("<div class='tooltiptext'><div class='provers'>{options}</div><div class='type'>{typ}</div></div>");
         let tooltip = format!("<div class='tooltip'><span class='meta'>{varname}</span>{tooltiptext}</div>");
         return format!("<label><input type='radio' name='meta' id='{meta_id}' value='{meta_id}'>{tooltip}</label>")
     }

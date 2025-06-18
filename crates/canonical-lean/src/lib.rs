@@ -5,7 +5,7 @@ use canonical_compat::ir::*;
 use canonical_core::core::*;
 use canonical_core::prover::*;
 use canonical_core::search::*;
-use canonical_core::memory::S;
+use canonical_core::memory::{S, W};
 use std::thread;
 use std::time::{Duration, Instant};
 use std::sync::atomic::Ordering;
@@ -425,7 +425,7 @@ fn main(ir_type: IRType, sender: Sender<()>, count: usize, terms: Arc<Mutex<Vec<
     let node = Node { 
         entry: Entry { params_id: entry.params_id, lets_id: entry.lets_id, subst: None, 
             context: Some(Context(tb.types.downgrade(), tb.codomain.borrow().gamma.clone(), tb.codomain.borrow().bindings.clone()))}, 
-        bindings: tb.codomain.borrow().gamma.linked.as_ref().unwrap().borrow().node.bindings.clone() 
+        bindings: tb.codomain.borrow().gamma.linked.as_ref().unwrap().borrow().node.bindings.clone()
     };
     let mut owned_linked = Vec::new();
     let es = ES::new().append(node, &mut owned_linked);
@@ -436,7 +436,8 @@ fn main(ir_type: IRType, sender: Sender<()>, count: usize, terms: Arc<Mutex<Vec<
 
     prover.prove(&|term: Term| {
         let mut v = terms.lock().unwrap();
-        let ir_term = IRTerm::from_term(term.base, &ES::new());
+        let bindings = term.base.borrow().gamma.linked.as_ref().unwrap().borrow().node.bindings.clone();
+        let ir_term = IRTerm::from_lambda(term, bindings, false);
         if v.len() < count && v.iter().all(|x| x != &ir_term) {
             v.push(ir_term);
         }
@@ -568,11 +569,15 @@ pub unsafe extern "C" fn get_refinement() -> *const LeanResult {
             lean_io_result_mk_error(lean_mk_io_user_error(to_lean_string("No refine server running!")))
         }
         Some(state) => {
+            let current = state.lock().unwrap().current.downgrade();
+            let bindings = current.borrow().gamma.linked.as_ref().unwrap().borrow().node.bindings.clone();
             lean_io_result_mk_ok(
                 to_lean_term(
-                    &IRTerm::from_term(
-                        state.lock().unwrap().current.downgrade(), 
-                        &ES::new()
+                    &IRTerm::from_lambda(
+                        Term { base: current.clone(), 
+                            es: current.borrow().gamma.clone() },
+                        bindings,
+                        false
                     )
                 ) as *const LeanObject
             )

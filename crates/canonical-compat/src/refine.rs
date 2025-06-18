@@ -95,7 +95,8 @@ async fn term(State(state): State<Arc<Mutex<AppState>>>) -> Json<serde_json::Val
         return Json(json!({}))
     };
     let meta = state.current.downgrade();
-    let mut term = IRTerm::from_term(meta.clone(), &ES::new());
+    let mut owned_linked = Vec::new();
+    let mut term = IRTerm::from_body(Term { base: meta.clone(), es: meta.borrow().gamma.clone() }.whnf(&mut owned_linked, &mut ()), true);
     term.params = Vec::new();
     term.lets = Vec::new();
     let html = term.to_string();

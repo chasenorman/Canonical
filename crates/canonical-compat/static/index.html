@@ -56,7 +56,14 @@
 
         .tooltiptext {
             display: none;
+            line-height: 20px;
+            width: 200px;
+            border-radius: 8.5px;
+            margin-top: 5px;
+            margin-left: -8px;
+            box-shadow: rgba(0, 0, 0, 0.05) 0px 0px 20px 5px;
         }
+        
         input[type="radio"]:checked ~ .tooltip .tooltiptext {
             display: block;
         }
@@ -73,16 +80,19 @@
         }
 
         .provers {
-            line-height: 20px;
-            width: 200px;
-            background-color: var(--listBackground);
             padding: 5px;
-            border-radius: 8.5px;
+            background-color: var(--listBackground);
             border: 1px var(--listBorder) solid;
-            z-index: 1;
-            margin-top: 5px;
-            margin-left: -8px;
-            box-shadow: rgba(0, 0, 0, 0.05) 0px 0px 20px 5px;
+            border-bottom: none;
+            border-radius: 8.5px 8.5px 0 0;
+        }
+
+        .type {
+            padding: 5px 10px;
+            background-color: rgb(230, 230, 230);
+            border: 1px var(--listBorder) solid;
+            border-top: 1px solid rgb(178, 178, 178);
+            border-radius: 0 0 8.5px 8.5px;
         }
 
         .fail {
@@ -104,11 +114,6 @@
             text-overflow: ellipsis;
             white-space: nowrap;
             overflow: hidden;
-        }
-
-        .type {
-            display: none;
-            color: rgb(127, 127, 127)
         }
 
         .option:hover {
