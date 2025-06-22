@@ -146,35 +146,36 @@ pub async fn main() {
     let ty = Type(tb_ref.downgrade(), es, problem_bind.downgrade());
     let prover = Prover::new(ty);
 
-    let state = AppState {
-        current: prover.meta,
-        undo: Vec::new(),
-        redo: Vec::new(),
-        autofill: true,
-        constraints: false,
-        _owned_linked: owned_linked,
-        _owned_tb: tb_ref,
-        _owned_bind: problem_bind
-    };
+    // let state = AppState {
+    //     current: prover.meta,
+    //     undo: Vec::new(),
+    //     redo: Vec::new(),
+    //     autofill: true,
+    //     constraints: false,
+    //     _owned_linked: owned_linked,
+    //     _owned_tb: tb_ref,
+    //     _owned_bind: problem_bind
+    // };
 
-    start_server(state).await;
+    // start_server(state).await;
 
     // Print step count each second.
-    // std::thread::spawn(move || {
-    //     let mut prev = 0;
-    //     loop {
-    //         std::thread::sleep(std::time::Duration::from_secs(1));
-    //         let count = STEP_COUNT.load(std::sync::atomic::Ordering::Relaxed);
-    //         println!("total: {}", count);
-    //         println!("t/s: {}", count - prev);
-    //         prev = count;
-    //     }
-    // });
+    std::thread::spawn(move || {
+        let mut prev = 0;
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            let count = STEP_COUNT.load(std::sync::atomic::Ordering::Relaxed);
+            println!("total: {}", count);
+            println!("t/s: {}", count - prev);
+            prev = count;
+        }
+    });
     
-    // let now = SystemTime::now();
-    // prover.prove(&|term: Term| {
-    //     println!("{}", now.elapsed().unwrap().as_secs_f32());
-    //     println!("{}", IRTerm::from_term(term.base, &ES::new(), false));
-    //     std::process::exit(0);
-    // }, true);
+    let now = SystemTime::now();
+    prover.prove(&|term: Term| {
+        let mut owned_linked = Vec::new();
+        println!("{}", now.elapsed().unwrap().as_secs_f32());
+        println!("{}", IRTerm::from_body(term.whnf(&mut owned_linked, &mut ()), false));
+        std::process::exit(0);
+    }, true);
 }

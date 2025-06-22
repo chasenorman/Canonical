@@ -481,12 +481,9 @@ static INSTANCE: Lazy<Lock> = Lazy::new(|| Lock::new());
 
 /// `canonical` in Lean.
 #[no_mangle]
-pub unsafe extern "C" fn canonical(typ: *const LeanType, timeout: u64, count: usize, debug: bool) -> *const LeanResult {
+pub unsafe extern "C" fn canonical(typ: *const LeanType, timeout: u64, count: usize) -> *const LeanResult {
     INSTANCE.lock();
     let ir_type = to_ir_type(typ);
-    if debug {
-        ir_type.save("debug.json".to_string());
-    }
     let (tx, rx) = mpsc::channel();
 
     let arc : Arc<Mutex<Vec<IRTerm>>> = Arc::new(Mutex::new(Vec::new()));
@@ -584,6 +581,13 @@ pub unsafe extern "C" fn get_refinement() -> *const LeanResult {
             )
         }
     }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn save_to_file(typ: *const LeanType, file: *const LeanStringObject) -> *const LeanResult {
+    let ir_type = to_ir_type(typ);
+    ir_type.save(to_string(file));
+    lean_io_result_mk_ok(lean_box(0))
 }
 
 // fn print_force(s: String) -> Result<(), std::io::Error> {

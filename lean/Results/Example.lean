@@ -8,8 +8,8 @@ open Mathlib.Tactic.CC
 open CompleteLattice
 open Function
 
-example : (A ∧ ¬A) → B :=
-  by canonical
+-- example : (A ∧ ¬A) → B :=
+--   by canonical
 
 
 -- theorem Cantor (f : X → Set X) : ¬Surjective f :=
