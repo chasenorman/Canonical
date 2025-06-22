@@ -437,7 +437,7 @@ fn main(ir_type: IRType, sender: Sender<()>, count: usize, terms: Arc<Mutex<Vec<
     prover.prove(&|term: Term| {
         let mut v = terms.lock().unwrap();
         let bindings = term.base.borrow().gamma.linked.as_ref().unwrap().borrow().node.bindings.clone();
-        let ir_term = IRTerm::from_lambda(term, bindings, false);
+        let ir_term = IRTerm::from_lambda::<false>(term, bindings, false);
         if v.len() < count && v.iter().all(|x| x != &ir_term) {
             v.push(ir_term);
         }
@@ -571,7 +571,7 @@ pub unsafe extern "C" fn get_refinement() -> *const LeanResult {
             let bindings = current.borrow().gamma.linked.as_ref().unwrap().borrow().node.bindings.clone();
             lean_io_result_mk_ok(
                 to_lean_term(
-                    &IRTerm::from_lambda(
+                    &IRTerm::from_lambda::<false>(
                         Term { base: current.clone(), 
                             es: current.borrow().gamma.clone() },
                         bindings,

@@ -76,7 +76,7 @@ fn get_rules(term: &Term) -> Vec<String> {
 }
 
 fn _get_rules(term: &Term, attribution: &mut Vec<String>, owned_linked: &mut Vec<S<Linked>>) {
-    let whnf = term.whnf(owned_linked, attribution);
+    let whnf = term.whnf::<true, Vec<String>>(owned_linked, attribution);
     if whnf.0.base.borrow().assignment.is_some() {
         let len = whnf.0.base.borrow().assignment.as_ref().unwrap().args.len();
         for i in 0..len {
@@ -157,18 +157,18 @@ impl IRTerm {
         }
     }
 
-    pub fn from_lambda(term: Term, bindings: W<Indexed<S<Bind>>>, html: bool) -> IRTerm {
+    pub fn from_lambda<const rules: bool>(term: Term, bindings: W<Indexed<S<Bind>>>, html: bool) -> IRTerm {
         let mut owned_linked = Vec::new();
         let params = bindings.borrow().params.iter().map(|b| IRVar { name: b.borrow().name.clone(), irrelevant: false }).collect();
         let lets = bindings.borrow().lets.iter().map(|b| 
             IRLet { var: IRVar { name: b.borrow().name.clone(), irrelevant: false }, rules: Vec::new() }).collect();
         let goal_rules = term.base.borrow().typ.as_ref().map(|typ| get_rules(&typ.codomain())).unwrap_or_default();
         // TODO special WHNF that does not get stuck and does not unfold definitions
-        let IRTerm { params: _, lets: _, head, args, premise_rules, goal_rules: _ } = IRTerm::from_body(term.whnf(&mut owned_linked, &mut ()), html);
+        let IRTerm { params: _, lets: _, head, args, premise_rules, goal_rules: _ } = IRTerm::from_body::<rules>(term.whnf::<rules, ()>(&mut owned_linked, &mut ()), html);
         IRTerm { params, lets, head, args, premise_rules, goal_rules }
     }
 
-    pub fn from_body(WHNF(whnf, head): WHNF, html: bool) -> IRTerm {
+    pub fn from_body<const rules: bool>(WHNF(whnf, head): WHNF, html: bool) -> IRTerm {
         let mut owned_linked = Vec::new();
             
         match &head {
@@ -176,7 +176,7 @@ impl IRTerm {
                 if html {
                     IRTerm { params: Vec::new(), lets: Vec::new(), head: Self::meta_html(meta.clone()), args: Vec::new(), premise_rules: Vec::new(), goal_rules: Vec::new() }
                 } else {
-                    Self::from_meta(whnf, meta.clone())
+                    Self::from_meta::<rules>(whnf, meta.clone())
                 }
             }
             Head::Var(var) => {
@@ -190,7 +190,7 @@ impl IRTerm {
                         bindings: wbindings.clone()
                     }, &mut owned_linked);
                     _owned_bindings.push(bindings);
-                    IRTerm::from_lambda(Term { base: arg.downgrade(), es }, wbindings.clone(), html)
+                    IRTerm::from_lambda::<rules>(Term { base: arg.downgrade(), es }, wbindings.clone(), html)
                 }).collect();
 
                 IRTerm {
@@ -204,7 +204,7 @@ impl IRTerm {
         }
     }
 
-    fn from_meta(term: Term, stuck: W<Meta>) -> IRTerm {
+    fn from_meta<const rules: bool>(term: Term, stuck: W<Meta>) -> IRTerm {
         let mut args = Vec::new();
         if !stuck.borrow().bindings.borrow().params.is_empty() {
             if let Some(subst) = &term.es.linked.as_ref().unwrap().borrow().node.entry.subst {
@@ -219,7 +219,7 @@ impl IRTerm {
                         bindings: wbindings.clone()
                     }, &mut owned_linked);
                     _owned_bindings.push(bindings);
-                    args.push(IRTerm::from_lambda(Term { base: arg, es }, wbindings.clone(), false))
+                    args.push(IRTerm::from_lambda::<rules>(Term { base: arg, es }, wbindings.clone(), false))
                 }
             }
         }
@@ -252,14 +252,14 @@ impl IRTerm {
             None
         }).reduce(|a, b| format!("{a}</br>{b}")).unwrap_or("<div class='fail'>No Options</div>".to_string());
         let mut owned_linked = Vec::new();
-        let typ = IRTerm::from_body(meta.borrow().typ.as_ref().unwrap().codomain().whnf(&mut owned_linked, &mut ()), false);
+        let typ = IRTerm::from_body::<true>(meta.borrow().typ.as_ref().unwrap().codomain().whnf::<true, ()>(&mut owned_linked, &mut ()), false);
 
         let constraints = if meta.borrow().equations.is_empty() {
             "".to_string()
         } else {
             let inner = meta.borrow().equations.iter().map(|eqn| {
-                let lhs = IRTerm::from_body(eqn.premise.whnf(&mut owned_linked, &mut ()), false);
-                let rhs = IRTerm::from_body(eqn.goal.whnf(&mut owned_linked, &mut ()), false);
+                let lhs = IRTerm::from_body::<true>(eqn.premise.whnf::<true, ()>(&mut owned_linked, &mut ()), false);
+                let rhs = IRTerm::from_body::<true>(eqn.goal.whnf::<true, ()>(&mut owned_linked, &mut ()), false);
                 format!("<div class='constraint'>{lhs} ≡ {rhs}</div>")
             }).fold("".to_string(), |a, b| a + &b);
             format!("<div class='constraints'>{inner}</div>")

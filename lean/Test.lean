@@ -44,4 +44,4 @@ theorem add_comm' (a b : Nat) : a + b = b + a := by
       a
 
 
-example : true ≠ false := by exact fun a ↦ by simpa only [reduceCtorEq] using a
+example : true ≠ false := by exact fun a ↦ by exact by simpa only [reduceCtorEq] using a
