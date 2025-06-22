@@ -180,7 +180,7 @@ pub fn to_rules(rules: &Vec<IRRule>, es: &ES, owned_linked: &mut Vec<S<Linked>>,
         Rule {
             pattern: build.pattern,
             replacement: S::new(rule.rhs.to_term(&rhs_es)),
-            name: rule.name.clone()
+            attribution: rule.attribution.clone()
         }
     }).collect()
 }

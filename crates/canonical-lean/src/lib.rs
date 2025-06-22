@@ -212,7 +212,7 @@ pub struct LeanRule {
     m_header: LeanObject,
     lhs: *const LeanTerm,
     rhs: *const LeanTerm,
-    name: *const LeanOption,
+    attribution: *const LeanArrayObject,
     is_redex: bool
 }
 
@@ -221,7 +221,7 @@ fn to_ir_rule(r: *const LeanRule) -> IRRule {
         IRRule {
             lhs: to_ir_term((*r).lhs),
             rhs: to_ir_term((*r).rhs),
-            name: to_option((*r).name).map(|n| to_string(n as *const LeanStringObject)),
+            attribution: to_vec((*r).attribution).iter().map(|x| to_string(*x as *const LeanStringObject)).collect(),
             is_redex: (*r).is_redex
         }
     }
@@ -232,7 +232,7 @@ fn to_lean_rule(r: &IRRule) -> *const LeanRule {
         let o = lean_alloc_ctor(0, 3, 1) as *mut LeanRule;
         (*o).lhs = to_lean_term(&r.lhs);
         (*o).rhs = to_lean_term(&r.rhs);
-        (*o).name = to_lean_option(&r.name.as_ref().map(|n| to_lean_string(n) as *const LeanObject));
+        (*o).attribution = to_lean_array(&r.attribution.iter().map(|x| to_lean_string(x) as *const LeanObject).collect());
         (*o).is_redex = r.is_redex;
         o
     }

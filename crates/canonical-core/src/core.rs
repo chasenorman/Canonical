@@ -312,7 +312,7 @@ pub struct Symbol {
 pub struct Rule {
     pub pattern: Vec<Option<Symbol>>,
     pub replacement: S<Meta>,
-    pub name: Option<String>
+    pub attribution: Vec<String>
 }
 
 /// The `name` and `value` of a variable in the original input problem.
@@ -483,9 +483,7 @@ impl Attribution for () {
 
 impl Attribution for Vec<String> {
     fn attribute(&mut self, s: &Rule) {
-        if let Some(name) = &s.name {
-            self.push(name.clone());
-        }
+        self.append(&mut s.attribution.clone());
     }
 }
 

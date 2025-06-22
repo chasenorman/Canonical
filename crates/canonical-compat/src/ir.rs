@@ -24,7 +24,7 @@ pub struct IRVar {
 pub struct IRRule {
     pub lhs: IRTerm,
     pub rhs: IRTerm,
-    pub name: Option<String>,
+    pub attribution: Vec<String>,
     pub is_redex: bool
 }
 
