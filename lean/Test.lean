@@ -1,7 +1,7 @@
 import Canonical
 import Lean
 
-inductive MyNat
+inductive MyNat where
 | zero : MyNat
 | succ : MyNat → MyNat
 
@@ -30,9 +30,8 @@ theorem add_comm (a b : MyNat) : add a b = add b a := by
 
 @[simp] theorem add_assoc (a b c : MyNat) : add (add a b) c = add a (add b c) := by
   exact
-    rec (motive := fun t ↦ add (add t b) c = add t (add b c))
-      (by simp only [zero_add] <;> exact Eq.refl (add b c))
-      (fun a a_ih ↦ by simp only [MyNat.succ.injEq, succ_add] <;> exact a_ih) a
+    rec (motive := fun t ↦ add (add a b) t = add a (add b t)) (Eq.refl (add a b))
+      (fun a_1 a_ih ↦ by simp only [MyNat.succ.injEq, add.eq_2] <;> exact a_ih) c
 
 theorem add_comm' (a b : Nat) : a + b = b + a := by
   exact

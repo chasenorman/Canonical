@@ -1,11 +1,10 @@
-use std::env::consts;
 // https://github.com/leanprover/lean4/blob/master/src/include/lean/lean.h
 use std::ffi::{CStr, CString, c_char, c_void};
 use canonical_compat::ir::*;
 use canonical_core::core::*;
 use canonical_core::prover::*;
 use canonical_core::search::*;
-use canonical_core::memory::{S, W};
+use canonical_core::memory::S;
 use std::thread;
 use std::time::{Duration, Instant};
 use std::sync::atomic::Ordering;
@@ -157,18 +156,18 @@ fn to_option(o: *const LeanOption) -> Option<*const LeanObject> {
     }
 }
 
-fn to_lean_option(opt: &Option<*const LeanObject>) -> *const LeanOption {
-    unsafe {
-        match opt {
-            None => lean_box(0) as *const LeanOption,
-            Some(x) => {
-                let o = lean_alloc_ctor(1, 1, 0) as *mut LeanOption;
-                (*o).val = *x;
-                o
-            }
-        }
-    }
-}
+// fn to_lean_option(opt: &Option<*const LeanObject>) -> *const LeanOption {
+//     unsafe {
+//         match opt {
+//             None => lean_box(0) as *const LeanOption,
+//             Some(x) => {
+//                 let o = lean_alloc_ctor(1, 1, 0) as *mut LeanOption;
+//                 (*o).val = *x;
+//                 o
+//             }
+//         }
+//     }
+// }
 
 fn lean_alloc_ctor(tag: usize, num_objs: usize, scalar_sz: usize) -> *mut LeanCtorObject {
     assert!(tag <= 244);

@@ -1,17 +1,12 @@
-use thread_local_collect::tlm::channeled::Control;
 use Index::*;
-use crate::heuristic::next;
 use crate::memory::{S, W, WVec};
-use std::num::NonZero;
 use std::sync::atomic::{AtomicU64, Ordering};
-use string_interner::DefaultSymbol;
 use std::iter;
 use crate::stats::SearchInfo;
 use mimalloc::MiMalloc;
 use std::cell::RefCell;
-use std::ops::{ControlFlow, Range};
+use std::ops::{ControlFlow};
 use core::slice::Iter;
-use std::collections::HashSet;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -177,6 +172,7 @@ pub struct Equation {
     pub goal: Term
 }
 
+/// A window into a vector of `Instruction`, starting at `position`.
 #[derive(Clone)]
 pub struct RedexConstraint {
     pub instructions: WVec<Instruction>,
@@ -184,6 +180,9 @@ pub struct RedexConstraint {
 }
 
 impl RedexConstraint {
+    /// Make progress on the constraint, returning `false` if a redex is found and storing stuck constraints
+    /// in `redex_constraints` for the metavariables in `redex_changes`. `blame` is the metavariable that this 
+    /// constraint was previously stuck on. 
     fn reduce(&self, redex_constraints: &mut Vec<RedexConstraint>, redex_changes: &mut Vec<W<Meta>>, mut blame: W<Meta>) -> bool {
         let mut i = self.position;
         loop {
@@ -297,18 +296,28 @@ impl<T> Indexed<T> {
     }
 }
 
+/// One step in determining whether a redex is present.
+/// If `bind` is the head symbol, next check your ancestor
+/// up `parents` generations, and look at argument `child`.
 pub struct Instruction {
     pub bind: W<Bind>,
     pub parents: u32,
     pub child: usize
 }
 
+/// One step in performing a reduction rule.
+/// If `bind` is the head symbol, add `bindings` to the `ES`
+/// as a `Subst` with the arguments, and recurse on the children
+/// in the order specified by `children`.
 pub struct Symbol {
     pub bind: W<Bind>,
     pub children: Vec<usize>,
     pub bindings: S<Indexed<S<Bind>>>
 }
 
+/// A `Rule` is a list of `Option<Symbol>` (`None` is for wildcards),
+/// the right-hand side `replacement`, and the `attribution` to be
+/// performed for the rule. 
 pub struct Rule {
     pub pattern: Vec<Option<Symbol>>,
     pub replacement: S<Meta>,
@@ -323,7 +332,7 @@ pub struct Bind {
     pub rules: Vec<Rule>,
     pub redexes: Vec<Vec<Instruction>>,
 
-    pub owned_bindings: Vec<S<Indexed<S<Bind>>>>
+    pub _owned_bindings: Vec<S<Indexed<S<Bind>>>>
 }
 
 impl Bind {
@@ -333,7 +342,7 @@ impl Bind {
             irrelevant: false,
             rules: Vec::new(),
             redexes: Vec::new(),
-            owned_bindings: Vec::new()
+            _owned_bindings: Vec::new()
         }
     }
 }
@@ -458,13 +467,13 @@ pub struct Term {
     pub es: ES
 }
 
+/// A `Head` is either a variable, or is stuck on a metavariable.
 pub enum Head {
     Var(Var),
     Meta(W<Meta>)
 }
 
 /// A Term in weak head normal form, with the variable at the head, or the metavariable reduction is stuck on.
-/// We allow both the variable and metavariable to be present for when we are stuck on the major argument of a recursor.
 pub struct WHNF(pub Term, pub Head);
 
 pub struct Matcher<'a> {
@@ -495,7 +504,7 @@ impl Term {
     }
 
     /// Computes the weak head normal form. 
-    pub fn whnf<const rules: bool, C: Attribution>(&self, owned_linked: &mut Vec<S<Linked>>, attribution: &mut C) -> WHNF {
+    pub fn whnf<const RULES: bool, C: Attribution>(&self, owned_linked: &mut Vec<S<Linked>>, attribution: &mut C) -> WHNF {
         if let Some(assn) = &self.base.borrow().assignment {
             let es = self.es.sub_es(assn.head.0);
 
@@ -504,14 +513,14 @@ impl Term {
                 if let Some(subst) = &es.linked.as_ref().unwrap().borrow().node.entry.subst {
                     // If there is a substitution, and the index is a parameter, return the associated term in the substitution. 
                     let term = subst.get(i, Entry::subst(Subst(WVec::new(&assn.args), self.es.clone())), owned_linked);
-                    return term.whnf::<rules, C>(owned_linked, attribution);
+                    return term.whnf::<RULES, C>(owned_linked, attribution);
                 }
             }
 
             let var = es.get_var(assn.head.1);
             let bind = var.bind.clone();
             let whnf = WHNF(self.clone(), Head::Var(var));
-            if rules && !bind.borrow().rules.is_empty() {
+            if RULES && !bind.borrow().rules.is_empty() {
                 let mut matchers = bind.borrow().rules.iter().map(|rule| Matcher {
                     pattern: rule.pattern.iter(),
                     replacement: Term { base: rule.replacement.downgrade(), es: es.clone() },
@@ -519,7 +528,7 @@ impl Term {
                 }).collect();
                 if let ControlFlow::Break((term, rule)) = whnf.pattern_match(&mut matchers, owned_linked, attribution) {
                     attribution.attribute(rule);
-                    return term.whnf::<rules, C>(owned_linked, attribution);
+                    return term.whnf::<RULES, C>(owned_linked, attribution);
                 }
             }
             whnf
@@ -530,6 +539,7 @@ impl Term {
 }
 
 impl <'a> WHNF {
+    /// Patter match according to the reduction rules in `patterns`. Send attributions to `attribution`.
     fn pattern_match<C: Attribution>(&self, patterns: &mut Vec<Matcher<'a>>, owned_linked: &mut Vec<S<Linked>>, attribution: &mut C) -> ControlFlow<(Term, &'a Rule)> {
         let Head::Var(var) = &self.1 else {
             patterns.retain_mut(|matcher| 

@@ -1,17 +1,11 @@
 use canonical_core::core::*;
-use canonical_core::memory::{S, W, WVec};
+use canonical_core::memory::{S, W};
 use canonical_core::search::test;
-use std::{default, fmt};
+use std::fmt;
 use serde::{Serialize, Deserialize};
 use std::fs::File;
-use string_interner::{DefaultBackend, StringInterner};
-use std::sync::Mutex;
-use std::sync::LazyLock;
 use crate::reduction::*;
 use canonical_core::stats::SearchInfo;
-
-/// We use String interning for the names of inductive types in the `Value`, for fast equality checking.
-static INTERNER : LazyLock<Mutex<StringInterner<DefaultBackend>>> = LazyLock::new(|| Mutex::new(StringInterner::default()));
 
 /// A variable with a `name`, and whether it is proof `irrelevant` (unused).
 #[derive(PartialEq, Eq, Serialize, Deserialize, Clone)]
@@ -20,6 +14,10 @@ pub struct IRVar {
     pub irrelevant: bool,
 }
 
+/// A reduction rule `lhs ↦ rhs`. The `attribution` will be added
+/// to the `premiseRules` or `goalRules` arrays where used.
+/// Canonical will not return a term that reduces according to
+/// a rule that `isRedex`.
 #[derive(PartialEq, Eq, Serialize, Deserialize)]
 pub struct IRRule {
     pub lhs: IRTerm,
@@ -63,11 +61,12 @@ impl IRVar {
             irrelevant: self.irrelevant,
             rules: Vec::new(),
             redexes: Vec::new(),
-            owned_bindings: Vec::new()
+            _owned_bindings: Vec::new()
         }
     }
 }
 
+/// Obtains the attribution of reduction rules used in fully reducing `term`.
 fn get_rules(term: &Term) -> Vec<String> {
     let mut attribution = Vec::new();
     let mut owned_linked = Vec::new();
@@ -107,32 +106,28 @@ fn disambiguate(bindings: W<Indexed<S<Bind>>>, es: &ES) -> Indexed<S<Bind>> {
 }
 
 impl IRTerm {
-    /// Return a version of `es` with `self.lets` and `params`.
-    pub fn extend_es(&self, es: &ES, owned_linked: &mut Vec<S<Linked>>, params: &[IRVar]) -> (ES, S<Indexed<S<Bind>>>) {
+    /// Return a version of `es` with `self.lets` and `self.params`.
+    pub fn add_local(&self, es: &ES, owned_linked: &mut Vec<S<Linked>>) -> (ES, S<Indexed<S<Bind>>>) {
         let mut bindings = S::new(Indexed {
-            params: params.iter().map(|v| S::new(v.to_bind())).collect(),
+            params: self.params.iter().map(|v| S::new(v.to_bind())).collect(),
             lets: self.lets.iter().map(|d| S::new(d.var.to_bind())).collect()
         });
 
-        let node = Node { 
-            entry: Entry { params_id: next_u64(), lets_id: next_u64(), subst: None, context: None }, 
-            bindings: bindings.downgrade() 
-        };
+        let node = Node { entry: Entry::vars(next_u64()), bindings: bindings.downgrade() };
         let es = es.append(node, owned_linked);
 
-        // Use the extended ES to resolve the values of the lets. 
         for (i, d) in self.lets.iter().enumerate() {
             let mut owned_bindings = Vec::new();
             bindings.borrow_mut().lets[i].borrow_mut().rules = to_rules(&d.rules, &es, owned_linked, &mut owned_bindings);
             bindings.borrow_mut().lets[i].borrow_mut().redexes = to_redexes(&d.rules, &es);
-            bindings.borrow_mut().lets[i].borrow_mut().owned_bindings = owned_bindings;
+            bindings.borrow_mut().lets[i].borrow_mut()._owned_bindings = owned_bindings;
         }
         (es, bindings)
     }
 
     pub fn to_term(&self, es: &ES) -> Meta {
         let mut owned_linked = Vec::new();
-        let (es, bindings) = self.extend_es(es, &mut owned_linked, &self.params);
+        let (es, bindings) = self.add_local(es, &mut owned_linked);
         self.to_body(es, bindings, owned_linked)
     }
 
@@ -157,18 +152,24 @@ impl IRTerm {
         }
     }
 
-    pub fn from_lambda<const rules: bool>(term: Term, bindings: W<Indexed<S<Bind>>>, html: bool) -> IRTerm {
+    /// Constructs an `IRTerm` from the given `Term` with `bindings` as the top-level params and lets.
+    /// `html` determines whether metavariables are shown using `meta_html` for the refinement UI.
+    /// `RULES` indicates whether the term should be reduced according to the reduction rules.
+    pub fn from_lambda<const RULES: bool>(term: Term, bindings: W<Indexed<S<Bind>>>, html: bool) -> IRTerm {
         let mut owned_linked = Vec::new();
         let params = bindings.borrow().params.iter().map(|b| IRVar { name: b.borrow().name.clone(), irrelevant: false }).collect();
         let lets = bindings.borrow().lets.iter().map(|b| 
             IRLet { var: IRVar { name: b.borrow().name.clone(), irrelevant: false }, rules: Vec::new() }).collect();
         let goal_rules = term.base.borrow().typ.as_ref().map(|typ| get_rules(&typ.codomain())).unwrap_or_default();
-        // TODO special WHNF that does not get stuck and does not unfold definitions
-        let IRTerm { params: _, lets: _, head, args, premise_rules, goal_rules: _ } = IRTerm::from_body::<rules>(term.whnf::<rules, ()>(&mut owned_linked, &mut ()), html);
+        let IRTerm { params: _, lets: _, head, args, premise_rules, goal_rules: _ } = 
+            IRTerm::from_body::<RULES>(term.whnf::<RULES, ()>(&mut owned_linked, &mut ()), html);
         IRTerm { params, lets, head, args, premise_rules, goal_rules }
     }
 
-    pub fn from_body<const rules: bool>(WHNF(whnf, head): WHNF, html: bool) -> IRTerm {
+    /// Constructs an `IRTerm` with no `params` or `lets` from a `WHNF`. 
+    /// `html` determines whether metavariables are shown using `meta_html` for the refinement UI.
+    /// `RULES` indicates whether the term should be reduced according to the reduction rules.
+    pub fn from_body<const RULES: bool>(WHNF(whnf, head): WHNF, html: bool) -> IRTerm {
         let mut owned_linked = Vec::new();
             
         match &head {
@@ -176,7 +177,7 @@ impl IRTerm {
                 if html {
                     IRTerm { params: Vec::new(), lets: Vec::new(), head: Self::meta_html(meta.clone()), args: Vec::new(), premise_rules: Vec::new(), goal_rules: Vec::new() }
                 } else {
-                    Self::from_meta::<rules>(whnf, meta.clone())
+                    Self::from_meta::<RULES>(whnf, meta.clone())
                 }
             }
             Head::Var(var) => {
@@ -190,7 +191,7 @@ impl IRTerm {
                         bindings: wbindings.clone()
                     }, &mut owned_linked);
                     _owned_bindings.push(bindings);
-                    IRTerm::from_lambda::<rules>(Term { base: arg.downgrade(), es }, wbindings.clone(), html)
+                    IRTerm::from_lambda::<RULES>(Term { base: arg.downgrade(), es }, wbindings.clone(), html)
                 }).collect();
 
                 IRTerm {
@@ -204,7 +205,8 @@ impl IRTerm {
         }
     }
 
-    fn from_meta<const rules: bool>(term: Term, stuck: W<Meta>) -> IRTerm {
+    /// To mimic the behavior of external type theories, we can sometimes show metavariables as though they are in application.
+    fn from_meta<const RULES: bool>(term: Term, stuck: W<Meta>) -> IRTerm {
         let mut args = Vec::new();
         if !stuck.borrow().bindings.borrow().params.is_empty() {
             if let Some(subst) = &term.es.linked.as_ref().unwrap().borrow().node.entry.subst {
@@ -219,7 +221,7 @@ impl IRTerm {
                         bindings: wbindings.clone()
                     }, &mut owned_linked);
                     _owned_bindings.push(bindings);
-                    args.push(IRTerm::from_lambda::<rules>(Term { base: arg, es }, wbindings.clone(), false))
+                    args.push(IRTerm::from_lambda::<RULES>(Term { base: arg, es }, wbindings.clone(), false))
                 }
             }
         }
@@ -233,6 +235,7 @@ impl IRTerm {
         }
     }
 
+    /// Produces an HTML string for this metavariable in the refinement UI. 
     fn meta_html(meta: W<Meta>) -> String {
         let varname = "?&NoBreak;".to_string() + &meta.borrow().typ.as_ref().unwrap().2.borrow().name;
         let meta_id = meta.borrow() as *const Meta as usize;

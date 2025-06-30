@@ -2,7 +2,7 @@ use canonical_core::core::*;
 use canonical_core::stats::*;
 use canonical_core::prover::Prover;
 use canonical_core::memory::S;
-use crate::refine::*;
+// use crate::refine::*;
 pub mod ir;
 pub mod refine;
 pub mod reduction;
