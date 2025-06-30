@@ -58,8 +58,8 @@ impl MetaInfo {
     /// Collect the information of a metavaraible. 
     pub fn new(meta: W<Meta>) -> Self {
         let has_rigid_equation = meta.borrow().equations.iter().any(|e| 
-            e.premise.whnf(&mut Vec::new(), false).1.is_some() || 
-            e.goal.whnf(&mut Vec::new(), false).1.is_some()
+            matches!(e.premise.whnf::<true, ()>(&mut Vec::new(), &mut ()).1, Head::Var(_)) || 
+            matches!(e.goal.whnf::<true, ()>(&mut Vec::new(), &mut ()).1, Head::Var(_))
         );
         let bin = meta.borrow().typ.as_ref().unwrap().0.usize() + has_rigid_equation as usize;
         let current_stats = META_MAP.load().get(&bin).map(|x| x.clone()).unwrap_or_else(MetaStats::new);

@@ -36,13 +36,13 @@ fn lean_unbox(o: *const LeanObject) -> usize {
     (o as usize) >> 1
 }
 
-fn lean_obj_tag(o: *const LeanObject) -> usize {
-    if lean_is_scalar(o) {
-        lean_unbox(o)
-    } else {
-        unsafe { (*o).m_tag as usize }
-    }
-}
+// fn lean_obj_tag(o: *const LeanObject) -> usize {
+//     if lean_is_scalar(o) {
+//         lean_unbox(o)
+//     } else {
+//         unsafe { (*o).m_tag as usize }
+//     }
+// }
 
 #[repr(C)]
 pub struct LeanStringObject {
@@ -207,104 +207,42 @@ fn to_lean_var(v: &IRVar) -> *const LeanVar {
 }
 
 #[repr(C)]
-pub struct LeanDefinition {
+pub struct LeanRule {
     m_header: LeanObject,
-    term: *const LeanTerm,
+    lhs: *const LeanTerm,
+    rhs: *const LeanTerm,
+    attribution: *const LeanArrayObject,
+    is_redex: bool
 }
 
-#[repr(C)]
-pub struct LeanConstructor {
-    m_header: LeanObject,
-    type_name: *const LeanStringObject,
-    index: usize,
-    args_start: usize
+fn to_ir_rule(r: *const LeanRule) -> IRRule {
+    unsafe {
+        IRRule {
+            lhs: to_ir_term((*r).lhs),
+            rhs: to_ir_term((*r).rhs),
+            attribution: to_vec((*r).attribution).iter().map(|x| to_string(*x as *const LeanStringObject)).collect(),
+            is_redex: (*r).is_redex
+        }
+    }
 }
 
-#[repr(C)]
-pub struct LeanRecursor {
-    m_header: LeanObject,
-    type_name: *const LeanStringObject,
-    rules: *const LeanArrayObject,
-    shared: usize,
-    major: usize
+fn to_lean_rule(r: &IRRule) -> *const LeanRule {
+    unsafe {
+        let o = lean_alloc_ctor(0, 3, 1) as *mut LeanRule;
+        (*o).lhs = to_lean_term(&r.lhs);
+        (*o).rhs = to_lean_term(&r.rhs);
+        (*o).attribution = to_lean_array(&r.attribution.iter().map(|x| to_lean_string(x) as *const LeanObject).collect());
+        (*o).is_redex = r.is_redex;
+        o
+    }
 }
 
-#[repr(C)]
-pub struct LeanProjection {
-    m_header: LeanObject,
-    type_name: *const LeanStringObject,
-    index: usize,
-    major: usize
-}
-
-#[repr(C)]
-pub struct LeanHasMajor {
-    m_header: LeanObject,
-    major: usize
-}
-
-fn to_ir_value(value: *const LeanObject) -> IRValue {
-    unsafe { match lean_obj_tag(value) {
-        0 => {
-            let defn = value as *const LeanDefinition;
-            IRValue::Definition(to_ir_term((*defn).term))
-        }
-        1 => {
-            let ctor = value as *const LeanConstructor;
-            IRValue::Constructor(to_string((*ctor).type_name), (*ctor).index, (*ctor).args_start)
-        }
-        2 => {
-            let rec = value as *const LeanRecursor;
-            let rules = to_vec((*rec).rules).iter().map(|x| to_ir_term(*x as *const LeanTerm)).collect();
-            IRValue::Recursor(to_string((*rec).type_name), (*rec).shared, (*rec).major, rules)
-        }
-        3 => {
-            let proj = value as *const LeanProjection;
-            IRValue::Projection(to_string((*proj).type_name), (*proj).index, (*proj).major)
-        }
-        _ => IRValue::Opaque
-    } }
-}
-
-fn to_lean_value(value: &IRValue) -> *const LeanObject {
-    unsafe { match value {
-        IRValue::Definition(term) => {
-            let o = lean_alloc_ctor(0, 1, 0) as *mut LeanDefinition;
-            (*o).term = to_lean_term(term);
-            o as *const LeanObject
-        }
-        IRValue::Constructor(type_name, index, args_start) => {
-            let o = lean_alloc_ctor(1, 1, std::mem::size_of::<usize>()*2) as *mut LeanConstructor;
-            (*o).type_name = to_lean_string(type_name);
-            (*o).index = *index;
-            (*o).args_start = *args_start;
-            o as *const LeanObject
-        }
-        IRValue::Recursor(type_name, shared, major, rules) => {
-            let rules = to_lean_array(&rules.iter().map(|x| to_lean_term(x) as *const LeanObject).collect());
-            let o = lean_alloc_ctor(2, 2, std::mem::size_of::<usize>()*2) as *mut LeanRecursor;
-            (*o).type_name = to_lean_string(type_name);
-            (*o).rules = rules;
-            (*o).shared = *shared;
-            (*o).major = *major;
-            o as *const LeanObject
-        }
-        IRValue::Projection(type_name, index, major) => {
-            let o = lean_alloc_ctor(3, 1, std::mem::size_of::<usize>()*2) as *mut LeanProjection;
-            (*o).type_name = to_lean_string(type_name);
-            (*o).index = *index;
-            (*o).major = *major;
-            o as *const LeanObject
-        }
-        IRValue::Opaque => lean_box(4)
-    } }
-}
 
 #[repr(C)]
 pub struct LeanLet {
     m_header: LeanObject,
     name: *const LeanStringObject,
-    value: *const LeanObject,
+    rules: *const LeanArrayObject,
     irrelevant: bool
 }
 
@@ -315,7 +253,7 @@ fn to_ir_let(l: *const LeanLet) -> IRLet {
                 name: to_string((*l).name),
                 irrelevant: (*l).irrelevant
             },
-            value: to_ir_value((*l).value)
+            rules: to_vec((*l).rules).iter().map(|x| to_ir_rule(*x as *const LeanRule)).collect()
         }
     }
 }
@@ -325,7 +263,7 @@ fn to_lean_let(d: &IRLet) -> *const LeanLet {
         let o = lean_alloc_ctor(0, 2, 1) as *mut LeanLet;
         (*o).name = to_lean_string(&d.var.name);
         (*o).irrelevant = d.var.irrelevant;
-        (*o).value = to_lean_value(&d.value);
+        (*o).rules = to_lean_array(&d.rules.iter().map(|x| to_lean_rule(x) as *const LeanObject).collect());
         o
     }
 }
@@ -336,7 +274,10 @@ pub struct LeanTerm {
     params: *const LeanArrayObject,
     lets: *const LeanArrayObject,
     head: *const LeanStringObject,
-    args: *const LeanArrayObject
+    args: *const LeanArrayObject,
+
+    premise_rules: *const LeanArrayObject,
+    goal_rules: *const LeanArrayObject
 }
 
 fn to_ir_term(term: *const LeanTerm) -> IRTerm {
@@ -345,18 +286,24 @@ fn to_ir_term(term: *const LeanTerm) -> IRTerm {
             params: to_vec((*term).params).iter().map(|x| to_ir_var(*x as *const LeanVar)).collect(),
             lets: to_vec((*term).lets).iter().map(|x| to_ir_let(*x as *const LeanLet)).collect(),
             head: to_string((*term).head),
-            args: to_vec((*term).args).iter().map(|x| to_ir_term(*x as *const LeanTerm)).collect()
+            args: to_vec((*term).args).iter().map(|x| to_ir_term(*x as *const LeanTerm)).collect(),
+            
+            premise_rules: Vec::new(),
+            goal_rules: Vec::new()
         }
     }
 }
 
 fn to_lean_term(term: &IRTerm) -> *const LeanTerm {
     unsafe {
-        let o = lean_alloc_ctor(0, 4, 0) as *mut LeanTerm;
+        let o = lean_alloc_ctor(0, 6, 0) as *mut LeanTerm;
         (*o).params = to_lean_array(&term.params.iter().map(|x| to_lean_var(x) as *const LeanObject).collect());
         (*o).lets = to_lean_array(&term.lets.iter().map(|x| to_lean_let(x) as *const LeanObject).collect());
         (*o).head = to_lean_string(&term.head);
         (*o).args = to_lean_array(&term.args.iter().map(|x| to_lean_term(x) as *const LeanObject).collect());
+
+        (*o).premise_rules = to_lean_array(&term.premise_rules.iter().map(|x| to_lean_string(x) as *const LeanObject).collect());
+        (*o).goal_rules = to_lean_array(&term.goal_rules.iter().map(|x| to_lean_string(x) as *const LeanObject).collect());
         o
     }
 }
@@ -424,6 +371,7 @@ fn to_lean_result(terms: *const LeanArrayObject, result: DFSResult, last_level_s
 //     lean_ctor_set(r, 1, lean_box(0));
 //     return r;
 // }
+
 #[repr(C)]
 pub struct LeanResult {
     m_header: LeanObject,
@@ -470,24 +418,25 @@ pub extern "C" fn typ_to_string(t: *const LeanType) -> *const LeanStringObject {
 }
 
 /// Starts a `Prover` on `ir_type`, appending solutions to `terms` and sending on `sender` once complete.
-fn main(ir_type: IRType, sender: Sender<()>, program_synthesis: bool, count: usize, terms: Arc<Mutex<Vec<IRTerm>>>) -> (DFSResult, u32) {
+fn main(ir_type: IRType, sender: Sender<()>, count: usize, terms: Arc<Mutex<Vec<IRTerm>>>) -> (DFSResult, u32) {
     let tb = ir_type.to_type(&ES::new());
     let entry = &tb.codomain.borrow().gamma.linked.as_ref().unwrap().borrow().node.entry;
     let node = Node { 
         entry: Entry { params_id: entry.params_id, lets_id: entry.lets_id, subst: None, 
             context: Some(Context(tb.types.downgrade(), tb.codomain.borrow().gamma.clone(), tb.codomain.borrow().bindings.clone()))}, 
-        bindings: tb.codomain.borrow().gamma.linked.as_ref().unwrap().borrow().node.bindings.clone() 
+        bindings: tb.codomain.borrow().gamma.linked.as_ref().unwrap().borrow().node.bindings.clone()
     };
     let mut owned_linked = Vec::new();
     let es = ES::new().append(node, &mut owned_linked);
     let tb_ref = S::new(tb);
-    let problem_bind = S::new(Bind { name: "proof".to_string(), irrelevant: false, value: Value::Opaque, major: false });
+    let problem_bind = S::new(Bind::new("proof".to_string()));
     let ty = Type(tb_ref.downgrade(), es, problem_bind.downgrade());
-    let prover = Prover::new(ty, program_synthesis);
+    let prover = Prover::new(ty);
 
     prover.prove(&|term: Term| {
         let mut v = terms.lock().unwrap();
-        let ir_term = IRTerm::from_term(term.base, &ES::new());
+        let bindings = term.base.borrow().gamma.linked.as_ref().unwrap().borrow().node.bindings.clone();
+        let ir_term = IRTerm::from_lambda::<false>(term, bindings, false);
         if v.len() < count && v.iter().all(|x| x != &ir_term) {
             v.push(ir_term);
         }
@@ -531,18 +480,15 @@ static INSTANCE: Lazy<Lock> = Lazy::new(|| Lock::new());
 
 /// `canonical` in Lean.
 #[no_mangle]
-pub unsafe extern "C" fn canonical(typ: *const LeanType, timeout: u64, count: usize, prog_synth: bool, debug: bool) -> *const LeanResult {
+pub unsafe extern "C" fn canonical(typ: *const LeanType, timeout: u64, count: usize) -> *const LeanResult {
     INSTANCE.lock();
     let ir_type = to_ir_type(typ);
-    if debug {
-        ir_type.save("debug.json".to_string());
-    }
     let (tx, rx) = mpsc::channel();
 
     let arc : Arc<Mutex<Vec<IRTerm>>> = Arc::new(Mutex::new(Vec::new()));
     let arc_clone = arc.clone();
     let worker = thread::spawn(move || {
-        main(ir_type, tx, prog_synth, count, arc_clone)
+        main(ir_type, tx, count, arc_clone)
     });
 
     // Regularly check whether the task has been cancelled from Lean, until the timout is reached. 
@@ -571,7 +517,7 @@ pub unsafe extern "C" fn canonical(typ: *const LeanType, timeout: u64, count: us
 
 /// `refine` in Lean.
 #[no_mangle]
-pub unsafe extern "C" fn refine(typ: *const LeanType, _prog_synth: bool) -> *const LeanResult {
+pub unsafe extern "C" fn refine(typ: *const LeanType) -> *const LeanResult {
     let ir_type = to_ir_type(typ);
     let tb = ir_type.to_type(&ES::new());
     let entry = &tb.codomain.borrow().gamma.linked.as_ref().unwrap().borrow().node.entry;
@@ -583,7 +529,7 @@ pub unsafe extern "C" fn refine(typ: *const LeanType, _prog_synth: bool) -> *con
     let mut owned_linked = Vec::new(); // must be stored
     let es = ES::new().append(node, &mut owned_linked);
     let tb_ref = S::new(tb); // must be stored
-    let problem_bind = S::new(Bind { name: "proof".to_string(), irrelevant: false, value: Value::Opaque, major: false }); // must be stored
+    let problem_bind = S::new(Bind::new("proof".to_string())); // must be stored
     let ty = Type(tb_ref.downgrade(), es, problem_bind.downgrade());
     let meta = S::new(Meta::new(ty));
     let new_state = AppState {
@@ -591,6 +537,7 @@ pub unsafe extern "C" fn refine(typ: *const LeanType, _prog_synth: bool) -> *con
         undo: Vec::new(),
         redo: Vec::new(),
         autofill: true,
+        constraints: false,
         _owned_linked: owned_linked,
         _owned_tb: tb_ref,
         _owned_bind: problem_bind
@@ -619,16 +566,27 @@ pub unsafe extern "C" fn get_refinement() -> *const LeanResult {
             lean_io_result_mk_error(lean_mk_io_user_error(to_lean_string("No refine server running!")))
         }
         Some(state) => {
+            let current = state.lock().unwrap().current.downgrade();
+            let bindings = current.borrow().gamma.linked.as_ref().unwrap().borrow().node.bindings.clone();
             lean_io_result_mk_ok(
                 to_lean_term(
-                    &IRTerm::from_term(
-                        state.lock().unwrap().current.downgrade(), 
-                        &ES::new()
+                    &IRTerm::from_lambda::<false>(
+                        Term { base: current.clone(), 
+                            es: current.borrow().gamma.clone() },
+                        bindings,
+                        false
                     )
                 ) as *const LeanObject
             )
         }
     }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn save_to_file(typ: *const LeanType, file: *const LeanStringObject) -> *const LeanResult {
+    let ir_type = to_ir_type(typ);
+    ir_type.save(to_string(file));
+    lean_io_result_mk_ok(lean_box(0))
 }
 
 // fn print_force(s: String) -> Result<(), std::io::Error> {

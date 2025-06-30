@@ -1,11 +1,12 @@
 use Index::*;
 use crate::memory::{S, W, WVec};
 use std::sync::atomic::{AtomicU64, Ordering};
-use string_interner::DefaultSymbol;
 use std::iter;
 use crate::stats::SearchInfo;
 use mimalloc::MiMalloc;
 use std::cell::RefCell;
+use std::ops::{ControlFlow};
+use core::slice::Iter;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -53,10 +54,12 @@ pub struct Assignment {
 
     /// `changes` and `_owned_linked` allow us to return to the previous state during backtracking.
     pub changes: Vec<W<Meta>>,
+    pub redex_changes: Vec<W<Meta>>,
     pub _owned_linked: Vec<S<Linked>>, // never accessed, only used for ownership.
 
     /// True if the codomain of `head` is not stuck on a metavariable, for heuristics.
-    pub has_rigid_type: bool
+    pub has_rigid_type: bool,
+    pub var_type: Option<Type>
 }
 
 /// The core data structure for terms and metavariables, consisting of an `assignment`
@@ -67,6 +70,8 @@ pub struct Meta {
     pub gamma: ES,
     /// Equations that are stuck on this metavariable.
     pub equations: Vec<Equation>,
+    pub redex_constraints: Vec<RedexConstraint>,
+
     /// The `Type` of this metavariable.
     pub typ: Option<Type>,
     /// The bindings introduced by this term.
@@ -91,6 +96,7 @@ impl Meta {
             assignment: None,
             gamma: typ.1.clone(),
             equations: Vec::new(),
+            redex_constraints: Vec::new(),
             bindings: typ.0.borrow().codomain.borrow().bindings.clone(),
             _owned_bindings: None,
             stats: SearchInfo::new(),
@@ -104,36 +110,54 @@ impl Meta {
 
     /// Checks that the assignment made to `self` does not violate an equation.
     /// If successful, outputs the new equations and updates the `changes` of the assignment.
-    pub fn test_assignment(&mut self, var_type: &Type, prog_synth: bool) -> Option<Vec<Equation>> {
+    pub fn test_assignment(&mut self, this: W<Meta>) -> Option<(Vec<Equation>, Vec<RedexConstraint>)> {
         let mut eqns = Vec::new();
         let assn = self.assignment.as_mut().unwrap();
 
-        // check the type of `self` with the codomain of the `var_type`.
-        if (Equation { premise: var_type.codomain(), goal: self.typ.as_ref().unwrap().codomain() }
-            .reduce(&mut eqns, &mut assn.changes, &mut assn._owned_linked, prog_synth)) {
-            // reduce existing equations
-            if self.equations.iter().all(|eq|
-                eq.reduce(&mut eqns, &mut assn.changes, &mut assn._owned_linked, prog_synth)
-            ) {
-                return Some(eqns)
-            }
-        }
-        None
+        // check the type of `self` with the codomain of the `var_type
+        if (!Equation { premise: assn.var_type.as_ref().unwrap().codomain(), goal: self.typ.as_ref().unwrap().codomain() }
+            .reduce(&mut eqns, &mut assn.changes, &mut assn._owned_linked)) { return None; }
+
+        let mut redex_constraints = Vec::new();
+
+        if !assn.bind.borrow().redexes.iter().all(|redex|
+            RedexConstraint {
+                instructions: WVec::new(redex),
+                position: 0
+            }.reduce(&mut redex_constraints, &mut assn.redex_changes, this.clone())
+        ) { return None; }
+
+        if !self.redex_constraints.iter().all(|redex| 
+            redex.reduce(&mut redex_constraints, &mut assn.redex_changes, this.clone())
+        ) { return None }
+
+        if !self.equations.iter().all(|eq|
+            eq.reduce(&mut eqns, &mut assn.changes, &mut assn._owned_linked)
+        ) { return None }
+
+        return Some((eqns, redex_constraints));
     }
 
     /// Perform an (already tested) assignment.
-    pub fn assign(&mut self, mut assn: Assignment, eqns: Vec<Equation>) {
+    pub fn assign(&mut self, mut assn: Assignment, eqns: Vec<Equation>, redex_constraints: Vec<RedexConstraint>) {
         // store equations with their stuck metavaraible
         for (item, slot) in eqns.into_iter().zip(assn.changes.iter_mut()) {
             slot.borrow_mut().equations.push(item)
+        }
+        for (item, slot) in redex_constraints.into_iter().zip(assn.redex_changes.iter_mut()) {
+            slot.borrow_mut().redex_constraints.push(item)
         }
         self.assignment = Some(assn);
     }
 
     /// Unassign the metavariable, returning equations to their pre-assignment state.
     pub fn unassign(&mut self) {
-        for meta in self.assignment.as_mut().unwrap().changes.iter_mut() {
+        let assn = self.assignment.as_mut().unwrap();
+        for meta in assn.changes.iter_mut() {
             meta.borrow_mut().equations.pop();
+        }
+        for meta in assn.redex_changes.iter_mut() {
+            meta.borrow_mut().redex_constraints.pop();
         }
         self.assignment = None;
     }
@@ -148,44 +172,84 @@ pub struct Equation {
     pub goal: Term
 }
 
+/// A window into a vector of `Instruction`, starting at `position`.
+#[derive(Clone)]
+pub struct RedexConstraint {
+    pub instructions: WVec<Instruction>,
+    pub position: usize
+}
+
+impl RedexConstraint {
+    /// Make progress on the constraint, returning `false` if a redex is found and storing stuck constraints
+    /// in `redex_constraints` for the metavariables in `redex_changes`. `blame` is the metavariable that this 
+    /// constraint was previously stuck on. 
+    fn reduce(&self, redex_constraints: &mut Vec<RedexConstraint>, redex_changes: &mut Vec<W<Meta>>, mut blame: W<Meta>) -> bool {
+        let mut i = self.position;
+        loop {
+            let Some(assn) = &blame.borrow().assignment else {
+                redex_constraints.push(RedexConstraint {
+                    instructions: self.instructions.clone(),
+                    position: i
+                });
+                redex_changes.push(blame);
+                return true
+            };
+
+            if !assn.bind.eq(&self.instructions[i].bind) {
+                return true;
+            }
+            if i == self.instructions.len() - 1 {
+                return false;
+            }
+            for _ in 0..self.instructions[i].parents {
+                blame = blame.borrow().parent.as_ref().unwrap().clone();
+            }
+            blame = blame.borrow().assignment.as_ref().unwrap().args[self.instructions[i].child].downgrade();
+            i += 1;
+        }
+    }
+}
+
+
 impl Equation {
     /// Break down the equation into equations that are stuck on metavariables, added to `equations`.
     /// Returns false if the equation is violated.
     fn reduce(&self, equations: &mut Vec<Equation>, changes: &mut Vec<W<Meta>>,
-              owned_linked: &mut Vec<S<Linked>>, prog_synth: bool) -> bool {
+              owned_linked: &mut Vec<S<Linked>>) -> bool {
         if owned_linked.len() > 1000 { return false }
         // Reduce both sides of the equation.
-        let WHNF(premise, premise_head, premise_meta) =
-            self.premise.whnf(owned_linked, prog_synth);
-        let WHNF(goal, goal_head, goal_meta) =
-            self.goal.whnf(owned_linked, prog_synth);
+        match self.premise.whnf::<true, ()>(owned_linked, &mut ()) {
+            WHNF(premise, Head::Var(lhs)) => {
+                match self.goal.whnf::<true, ()>(owned_linked, &mut ()) {
+                    WHNF(goal, Head::Var(rhs)) => {
+                        // If the head symbols are not equal, the equation is violated.
+                        if !lhs.eq(&rhs) { return false }
 
-        if premise_head.is_some() && (!prog_synth || premise_meta.is_none()) {
-            if goal_head.is_some() && (!prog_synth || goal_meta.is_none()) {
-                // If the head symbols are not equal, the equation is violated.
-                if !premise_head.as_ref().unwrap().eq(goal_head.as_ref().unwrap()) { return false }
+                        // Identifier for the variables bound by the arguments of premise and goal.
+                        let var_id = next_u64();
 
-                // Identifier for the variables bound by the arguments of premise and goal.
-                let var_id = next_u64();
-
-                // Check that the arguments of premise and goal are equal.
-                (0..premise.base.borrow().assignment.as_ref().unwrap().args.len()).all(|i|
-                    Equation {
-                        premise: premise.arg(i, Entry::vars(var_id), owned_linked),
-                        goal: goal.arg(i, Entry::vars(var_id), owned_linked)
-                    }.reduce(equations, changes, owned_linked, prog_synth)
-                )
-            } else {
-                // goal is stuck, add an equation associated with goal_meta.
-                equations.push(Equation { premise, goal });
-                changes.push(goal_meta.unwrap());
-                true
+                        // Check that the arguments of premise and goal are equal.
+                        (0..premise.base.borrow().assignment.as_ref().unwrap().args.len()).all(|i|
+                            Equation {
+                                premise: premise.arg(i, Entry::vars(var_id), owned_linked),
+                                goal: goal.arg(i, Entry::vars(var_id), owned_linked)
+                            }.reduce(equations, changes, owned_linked)
+                        )
+                    }
+                    WHNF(goal, Head::Meta(rhs)) => {
+                        // goal is stuck, add an equation associated with goal_meta.
+                        equations.push(Equation { premise, goal });
+                        changes.push(rhs);
+                        true
+                    }
+                }
             }
-        } else {
-            // premise is stuck, add an equation associated with premise_meta.
-            equations.push(Equation { premise, goal });
-            changes.push(premise_meta.unwrap());
-            true   
+            WHNF(premise, Head::Meta(lhs)) => {
+                // premise is stuck, add an equation associated with premise_meta.
+                equations.push(Equation { premise, goal: self.goal.clone() });
+                changes.push(lhs);
+                true   
+            }
         }
     }
 }
@@ -232,13 +296,32 @@ impl<T> Indexed<T> {
     }
 }
 
-/// The Value of a variable in the original input problem, if any.
-pub enum Value {
-    Opaque,
-    Definition(S<Meta>),
-    Constructor(DefaultSymbol, usize, usize),
-    Recursor(DefaultSymbol, usize, usize, Vec<S<Meta>>, Vec<S<Indexed<S<Bind>>>>),
-    Projection(DefaultSymbol, usize, usize)
+/// One step in determining whether a redex is present.
+/// If `bind` is the head symbol, next check your ancestor
+/// up `parents` generations, and look at argument `child`.
+pub struct Instruction {
+    pub bind: W<Bind>,
+    pub parents: u32,
+    pub child: usize
+}
+
+/// One step in performing a reduction rule.
+/// If `bind` is the head symbol, add `bindings` to the `ES`
+/// as a `Subst` with the arguments, and recurse on the children
+/// in the order specified by `children`.
+pub struct Symbol {
+    pub bind: W<Bind>,
+    pub children: Vec<usize>,
+    pub bindings: S<Indexed<S<Bind>>>
+}
+
+/// A `Rule` is a list of `Option<Symbol>` (`None` is for wildcards),
+/// the right-hand side `replacement`, and the `attribution` to be
+/// performed for the rule. 
+pub struct Rule {
+    pub pattern: Vec<Option<Symbol>>,
+    pub replacement: S<Meta>,
+    pub attribution: Vec<String>
 }
 
 /// The `name` and `value` of a variable in the original input problem.
@@ -246,9 +329,22 @@ pub struct Bind {
     pub name: String,
     // Proof irrelevance, currently unused.
     pub irrelevant: bool,
-    pub value: Value,
-    // If true, this variable cannot be assigned to a constructor.
-    pub major: bool
+    pub rules: Vec<Rule>,
+    pub redexes: Vec<Vec<Instruction>>,
+
+    pub _owned_bindings: Vec<S<Indexed<S<Bind>>>>
+}
+
+impl Bind {
+    pub fn new(name: String) -> Self {
+        Bind {
+            name,
+            irrelevant: false,
+            rules: Vec::new(),
+            redexes: Vec::new(),
+            _owned_bindings: Vec::new()
+        }
+    }
 }
 
 /// An explicit substitution entry, consisting of identifiers for the params and lets
@@ -294,24 +390,16 @@ pub struct Linked {
     pub node: Node
 }
 
-/// Exclusively used for `get_head`. 
-struct Head {
-    var: Option<(Var, Option<W<Meta>>)>,
-    term: Option<Term>,
-    set_no_iota: bool
-}
-
 /// An Explicit Substitution, associating a `DeBruijnIndex` with a `Var` or `Term`.
 #[derive(Clone)]
 pub struct ES {
-    pub linked: Option<W<Linked>>,
-    pub iota_reduce: bool
+    pub linked: Option<W<Linked>>
 }
 
 impl ES {
     /// An empty explicit substitution.
     pub fn new() -> Self {
-        ES { linked: None, iota_reduce: true }
+        ES { linked: None }
     }
 
     /// Append a `Node` to the explicit substitution. 
@@ -325,7 +413,7 @@ impl ES {
         let weak = link.downgrade();
         // Pass the ownership.
         owned_linked.push(link);
-        ES { linked: Some(weak), iota_reduce: self.iota_reduce }
+        ES { linked: Some(weak) }
     }
     
     /// Returns the sublist rooted at node `db`.
@@ -334,7 +422,7 @@ impl ES {
         for _ in 0..db.0 {
             curr = curr.borrow().tail.as_ref().expect("Index out of bounds!");
         }
-        ES { linked: Some(curr.to_owned()), iota_reduce: self.iota_reduce }
+        ES { linked: Some(curr.to_owned()) }
     }
     
     /// Gets the variable at the root of this ES at the given `index`
@@ -350,76 +438,6 @@ impl ES {
             index,
             entry_id
         }
-    }
-
-    /// Gets the `Head` at the root of this ES at the given `index`. 
-    fn get_head(&self, index: Index, args: Subst, owned_linked: &mut Vec<S<Linked>>, prog_synth: bool) -> Head {
-        if let Param(i) = index {
-            if let Some(subst) = &self.linked.as_ref().unwrap().borrow().node.entry.subst {
-                // If there is a substitution, and the index is a parameter, return the associated term in the substitution. 
-                return Head { var: None, term: Some(subst.get(i, Entry::subst(args), owned_linked)), set_no_iota: false }
-            }
-        }
-        let var = self.get_var(index);
-        // We should return `var`, unless there is definitional reduction behavior.
-        return match &var.bind.borrow().value {
-            Value::Definition(def) => {
-                // Specialize the let definition with the arguments.
-                let term = Some(Term {
-                    base: def.downgrade(),
-                    es: self.append(Node { entry: Entry::subst(args), bindings: def.borrow().bindings.clone() }, owned_linked)
-                });
-                Head { var: Some((var, None)), term, set_no_iota: false }
-            }
-            Value::Recursor(typ, shared, major_idx, rules, owned_bindings) => {
-                if self.iota_reduce || prog_synth {
-                    // We must check if the major argument has a constructor at the head. 
-                    let major = args.get(*major_idx, Entry::vars(next_u64()), owned_linked).whnf(owned_linked, prog_synth);
-                    if let Some(head) = &major.1 {
-                        if let Value::Constructor(typ2, index, args_start) = head.bind.borrow().value {
-                            if typ2.eq(typ) {
-                                // The rule is specialized with the type parameters (shared), followed by the arguments to the constructor.
-                                let es = self.append(Node { 
-                                    entry: Entry::subst(Subst(WVec::from(&args.0[..*shared]), args.1)), 
-                                    bindings: owned_bindings[index].downgrade() 
-                                }, owned_linked).append(Node { 
-                                    entry: Entry::subst(Subst(WVec::from(&major.0.base.borrow().assignment.as_ref().unwrap().args[args_start..]), major.0.es)), 
-                                    bindings: rules[index].borrow().bindings.clone()
-                                }, owned_linked);
-
-                                return Head { var: None, term: Some(Term { base: rules[index].downgrade(), es }), set_no_iota: false }
-                            }
-                        }
-                    } else {
-                        // We are stuck on the major argument.
-                        return Head { var: Some((var, major.2)), term: None, set_no_iota: true }
-                    }
-                }
-                Head { var: Some((var, None)), term: None, set_no_iota: false }
-            }
-            Value::Projection(typ, index, major_idx) => {
-                if self.iota_reduce || prog_synth {
-                    // We must check if the major argument has a constructor at the head. 
-                    let major = args.get(*major_idx, Entry::vars(next_u64()), owned_linked).whnf(owned_linked, prog_synth);
-                    if let Some(head) = &major.1 {
-                        if let Value::Constructor(typ2, _, args_start) = head.bind.borrow().value {
-                            if typ2.eq(typ) {
-                                // Access the structure field at position `index` and apply it with any arguments following the major argument.
-                                return Head { var: None, term: Some(major.0.arg(*index + args_start, 
-                                    Entry::subst(Subst(WVec::from(&args.0[major_idx+1..]), args.1)), owned_linked)
-                                ), set_no_iota: false }
-                            }
-                        }
-                    } else {
-                        // We are stuck on the major argument.
-                        return Head { var: Some((var, major.2)), term: None, set_no_iota: true }
-                    }
-                }
-                Head { var: Some((var, None)), term: None, set_no_iota: false }
-            }
-            _  => Head { var: Some((var, None)), term: None, set_no_iota: false }
-        }
-        
     }
 
     /// Returns an iterator of `DeBruijnIndex` in this `ES``, along with the `Linked` they are rooted at.
@@ -449,44 +467,116 @@ pub struct Term {
     pub es: ES
 }
 
+/// A `Head` is either a variable, or is stuck on a metavariable.
+pub enum Head {
+    Var(Var),
+    Meta(W<Meta>)
+}
+
 /// A Term in weak head normal form, with the variable at the head, or the metavariable reduction is stuck on.
-/// We allow both the variable and metavariable to be present for when we are stuck on the major argument of a recursor.
-pub struct WHNF(pub Term, pub Option<Var>, pub Option<W<Meta>>);
+pub struct WHNF(pub Term, pub Head);
+
+pub struct Matcher<'a> {
+    pub pattern: Iter<'a, Option<Symbol>>,
+    pub replacement: Term,
+    pub rule: &'a Rule
+}
+
+pub trait Attribution {
+    fn attribute(&mut self, s: &Rule);
+}
+
+impl Attribution for () {
+    fn attribute(&mut self, _: &Rule) {}
+}
+
+impl Attribution for Vec<String> {
+    fn attribute(&mut self, s: &Rule) {
+        self.append(&mut s.attribution.clone());
+    }
+}
 
 impl Term {
     /// Get the `i`th argument, applied with `entry`.
-    fn arg(&self, i: usize, entry: Entry, owned_linked: &mut Vec<S<Linked>>) -> Term {
+    pub fn arg(&self, i: usize, entry: Entry, owned_linked: &mut Vec<S<Linked>>) -> Term {
         let base = self.base.borrow().assignment.as_ref().unwrap().args[i].downgrade();
         Term { es: self.es.append(Node { entry, bindings: base.borrow().bindings.clone() }, owned_linked), base }
     }
 
-    /// Creates a version of this `Term` that does not perform iota reduction.
-    fn no_iota(&self) -> Term {
-        Term {
-            base: self.base.clone(),
-            es: ES { linked: self.es.linked.clone(), iota_reduce: false }
+    /// Computes the weak head normal form. 
+    pub fn whnf<const RULES: bool, C: Attribution>(&self, owned_linked: &mut Vec<S<Linked>>, attribution: &mut C) -> WHNF {
+        if let Some(assn) = &self.base.borrow().assignment {
+            let es = self.es.sub_es(assn.head.0);
+
+            // If there is a term at the head, recursively reduce it. Otherwise, the variable is the head symbol.
+            if let Param(i) = assn.head.1 {
+                if let Some(subst) = &es.linked.as_ref().unwrap().borrow().node.entry.subst {
+                    // If there is a substitution, and the index is a parameter, return the associated term in the substitution. 
+                    let term = subst.get(i, Entry::subst(Subst(WVec::new(&assn.args), self.es.clone())), owned_linked);
+                    return term.whnf::<RULES, C>(owned_linked, attribution);
+                }
+            }
+
+            let var = es.get_var(assn.head.1);
+            let bind = var.bind.clone();
+            let whnf = WHNF(self.clone(), Head::Var(var));
+            if RULES && !bind.borrow().rules.is_empty() {
+                let mut matchers = bind.borrow().rules.iter().map(|rule| Matcher {
+                    pattern: rule.pattern.iter(),
+                    replacement: Term { base: rule.replacement.downgrade(), es: es.clone() },
+                    rule: &rule
+                }).collect();
+                if let ControlFlow::Break((term, rule)) = whnf.pattern_match(&mut matchers, owned_linked, attribution) {
+                    attribution.attribute(rule);
+                    return term.whnf::<RULES, C>(owned_linked, attribution);
+                }
+            }
+            whnf
+        } else {
+            WHNF(self.clone(), Head::Meta(self.base.clone()))
         }
     }
+}
 
-    /// Computes the weak head normal form. 
-    pub fn whnf(&self, owned_linked: &mut Vec<S<Linked>>, prog_synth: bool) -> WHNF {
-        match &self.base.borrow().assignment {
-            Some(assn) => {
-                let es = self.es.sub_es(assn.head.0);
-                let Head { var, term, set_no_iota } = 
-                    es.get_head(assn.head.1, Subst(WVec::new(&assn.args), self.es.clone()), owned_linked, prog_synth);
-                
-                // If there is a term at the head, recursively reduce it. Otherwise, the variable is the head symbol.
-                match term {
-                    Some(term) => term.whnf(owned_linked, prog_synth),
-                    None => {
-                        let (var, stuck) = var.unwrap();
-                        WHNF(if set_no_iota {self.no_iota()} else {self.clone()}, Some(var), stuck)
+impl <'a> WHNF {
+    /// Patter match according to the reduction rules in `patterns`. Send attributions to `attribution`.
+    fn pattern_match<C: Attribution>(&self, patterns: &mut Vec<Matcher<'a>>, owned_linked: &mut Vec<S<Linked>>, attribution: &mut C) -> ControlFlow<(Term, &'a Rule)> {
+        let Head::Var(var) = &self.1 else {
+            patterns.retain_mut(|matcher| 
+                matcher.pattern.next().unwrap().is_none()
+            );
+            return ControlFlow::Continue(())
+        };
+        let mut recursive = Vec::new();
+        let mut ordering: Option<&Vec<usize>> = None;
+        
+        for i in (0..patterns.len()).rev() {
+            if let Some(symbol) = patterns[i].pattern.next().unwrap() {
+                let mut matcher = patterns.remove(i);
+                if symbol.bind.eq(&var.bind) {
+                    ordering = Some(&symbol.children);
+                    matcher.replacement.es = matcher.replacement.es.append(Node {
+                        entry: Entry::subst(Subst(WVec::new(&self.0.base.borrow().assignment.as_ref().unwrap().args), self.0.es.clone())),
+                        bindings: symbol.bindings.downgrade()
+                    }, owned_linked);
+                    if matcher.pattern.len() == 0 {
+                        return ControlFlow::Break((matcher.replacement.clone(), matcher.rule));
                     }
+                    recursive.push(matcher);
                 }
-            },
-            None => WHNF(self.clone(), None, Some(self.base.clone()))
+            }
         }
+
+        if let Some(ordering) = ordering {
+            for &i in ordering {
+                let arg = self.0.arg(i, Entry::vars(next_u64()), owned_linked);
+                arg.whnf::<true, C>(owned_linked, attribution).pattern_match(&mut recursive, owned_linked, attribution)?;
+                if recursive.is_empty() { break; }
+            }
+        }
+
+        patterns.append(&mut recursive); // TODO this changes the order
+        ControlFlow::Continue(())
     }
 }
 
@@ -508,6 +598,7 @@ impl TypeBase {
                 typ: None,
                 gamma: ES::new(),
                 equations: Vec::new(),
+                redex_constraints: Vec::new(),
                 bindings: self.types.borrow()[Index::Param(i)].as_ref().unwrap().borrow().codomain.borrow().bindings.clone(),
                 _owned_bindings: None,
                 stats: SearchInfo::new(),

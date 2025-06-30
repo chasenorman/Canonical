@@ -15,6 +15,8 @@
             --listBackground: rgb(240, 240, 240);
             --listBorder: rgb(208, 208, 210);
             --listHover: rgb(202, 222, 247);
+            --infoBackground: rgb(230, 230, 230);
+            --infoSeparator: rgb(178, 178, 178);
 
             --optionBackground: rgb(240, 240, 240);
             --optionDisabled: rgb(127, 127, 127);
@@ -56,7 +58,14 @@
 
         .tooltiptext {
             display: none;
+            line-height: 20px;
+            width: 200px;
+            border-radius: 8.5px;
+            margin-top: 5px;
+            margin-left: -8px;
+            box-shadow: rgba(0, 0, 0, 0.05) 0px 0px 20px 5px;
         }
+        
         input[type="radio"]:checked ~ .tooltip .tooltiptext {
             display: block;
         }
@@ -73,21 +82,45 @@
         }
 
         .provers {
-            line-height: 20px;
-            width: 200px;
-            background-color: var(--listBackground);
             padding: 5px;
-            border-radius: 8.5px;
+            background-color: var(--listBackground);
             border: 1px var(--listBorder) solid;
-            z-index: 1;
-            margin-top: 5px;
-            margin-left: -8px;
-            box-shadow: rgba(0, 0, 0, 0.05) 0px 0px 20px 5px;
+            border-bottom: none;
+            border-radius: 8.5px 8.5px 0 0;
+        }
+
+        .type {
+            padding: 5px 10px;
+            background-color: var(--infoBackground);
+            border: 1px var(--listBorder) solid;
+            border-top: 1px var(--infoSeparator) solid;
+            border-radius: 0 0 8.5px 8.5px;
+            cursor: default;
+        }
+
+        .constraints {
+            padding: 0 5px;
+            background-color: var(--infoBackground);
+            border-top: 1px var(--infoSeparator) solid;
+            border-left: 1px var(--listBorder) solid;
+            border-right: 1px var(--listBorder) solid;
+            cursor: default;
+        }
+
+        .hide-constraints .constraints {
+            display: none;
+        }
+
+        .constraint {
+            padding: 5px;
         }
 
         .fail {
-            padding: 5px;
-            margin: 0;
+            text-align: center;
+            line-height: 50px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", system-ui;
+            color: var(--optionDisabled);
+            cursor: default;
         }
 
         .option {
@@ -106,11 +139,6 @@
             overflow: hidden;
         }
 
-        .type {
-            display: none;
-            color: rgb(127, 127, 127)
-        }
-
         .option:hover {
             background-color: var(--listHover)
         }
@@ -124,6 +152,7 @@
             background-color: var(--background);
             padding: 20px;
             color: var(--text);
+            word-break: keep-all;
         }
 
         .control {
@@ -200,6 +229,8 @@
             document.getElementById("undo").disabled = !data.undo;
             document.getElementById("redo").disabled = !data.redo;
             document.getElementById("autofill").checked = data.autofill;
+            document.getElementById("constraints").checked = data.constraints;
+            document.body.classList.toggle('hide-constraints', !data.constraints);
             radios = Array.from(document.querySelectorAll('input[name="meta"]'));
             index = null;
             removeSelected();
@@ -293,6 +324,9 @@
             document.getElementById("autofill").addEventListener("change", async (e) => {
                 set("autofill", e.target.checked)
             });
+            document.getElementById("constraints").addEventListener("change", async (e) => {
+                set("constraints", e.target.checked)
+            });
         }
 
         document.addEventListener('keydown', (e) => {
@@ -361,6 +395,10 @@
             <label for="autofill" style="line-height:20px;">Autofill</label>
         </div>
         <button class="control" onclick="insert()">Insert</button>
+        <div class="control">
+            <input type="checkbox" id="constraints" name="constraints" style="height:15px; width:15px;">
+            <label for="constraints" style="line-height:20px;">Constraints</label>
+        </div>
     </div>
     <br>
     <form id="term"></form>

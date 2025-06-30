@@ -29,7 +29,7 @@ impl DFSResult {
 }
 
 /// Construct and test the `Assignment` from refining `meta` with `head`.
-pub fn test(head: DeBruijnIndex, curr: W<Linked>, mut meta: W<Meta>, program_synthesis: bool) -> Option<Option<(Assignment, Vec<Equation>, AssignmentInfo)>> {
+pub fn test(head: DeBruijnIndex, curr: W<Linked>, mut meta: W<Meta>) -> Option<Option<(Assignment, Vec<Equation>, Vec<RedexConstraint>, AssignmentInfo)>> {
     let context = curr.borrow().node.entry.context.as_ref().unwrap();
     let Some(tb) = &context.0.borrow()[head.1] else {
         // Variable does not have a type, we are not permitted to apply it.
@@ -38,21 +38,15 @@ pub fn test(head: DeBruijnIndex, curr: W<Linked>, mut meta: W<Meta>, program_syn
     let args: Vec<S<Meta>> = tb.borrow().args_metas(meta.clone());
     let gamma = meta.borrow().gamma.clone();
     let mut _owned_linked = Vec::new();
-    let var_type = &curr.borrow().node.entry.context.as_ref().unwrap().get(head.1, Entry::subst(Subst(WVec::new(&args), gamma.clone())), &mut _owned_linked);
-    
-    if meta.borrow().typ.as_ref().unwrap().2.borrow().major {
-        if let Value::Constructor(_, _, _) = var_type.2.borrow().value {
-            // Constructors in major arguments violates canonicity. 
-            return None;
-        }
-    }
+    let var_type = curr.borrow().node.entry.context.as_ref().unwrap().get(head.1, Entry::subst(Subst(WVec::new(&args), gamma.clone())), &mut _owned_linked);
 
     meta.borrow_mut().assignment = Some(Assignment {
-        head, args, bind: var_type.2.clone(), changes: Vec::new(), _owned_linked,
-        has_rigid_type: var_type.codomain().whnf(&mut Vec::new(), false).1.is_some()
+        head, args, bind: var_type.2.clone(), changes: Vec::new(), redex_changes: Vec::new(), _owned_linked,
+        has_rigid_type: matches!(var_type.codomain().whnf::<true, ()>(&mut Vec::new(), &mut ()).1, Head::Var(_)),
+        var_type: Some(var_type.clone()),
     });
 
-    let Some(eqns) = meta.borrow_mut().test_assignment(var_type, program_synthesis) else {
+    let Some((eqns, redexes)) = meta.clone().borrow_mut().test_assignment(meta.clone()) else {
         // Equation violation. 
         meta.borrow_mut().assignment = None;
         return Some(None);
@@ -75,7 +69,7 @@ pub fn test(head: DeBruijnIndex, curr: W<Linked>, mut meta: W<Meta>, program_syn
         }, &mut assignment._owned_linked);
         arg.typ = Some(typ);
     }
-    Some(Some((assignment, eqns, assignment_info)))
+    Some(Some((assignment, eqns, redexes, assignment_info)))
 }
 
 /// Result from traversing the partial term, including the metavariable to be refined next and the entropy. 

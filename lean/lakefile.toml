@@ -4,7 +4,7 @@ defaultTargets = ["Test"]
 
 [[require]]
 name = "Canonical"
-scope = "chasenorman"
+git = "https://github.com/chasenorman/CanonicalLean"
 
 [[require]]
 name = "mathlib"

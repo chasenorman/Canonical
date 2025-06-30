@@ -14,8 +14,7 @@ pub static NUM_JOBS: AtomicUsize = AtomicUsize::new(0);
 pub struct Prover {
     pub meta: S<Meta>,
     /// In case we only want to solve a subtree of `meta`, this defines the root for `next`.
-    pub next_root: W<Meta>,
-    pub program_synthesis: bool
+    pub next_root: W<Meta>
 }
 
 unsafe impl Send for Prover {}
@@ -23,9 +22,9 @@ unsafe impl Send for W<Meta> {}
 
 impl Prover {
     /// Creates a new Prover for the specified `Type`. 
-    pub fn new(typ: Type, program_synthesis: bool) -> Self {
+    pub fn new(typ: Type) -> Self {
         let meta = S::new(Meta::new(typ));
-        Prover { next_root: meta.downgrade(), meta, program_synthesis }
+        Prover { next_root: meta.downgrade(), meta }
     }
 
     /// Gets the current (partial) term of the prover. 
@@ -96,12 +95,12 @@ impl Prover {
         let mut total_weight = 0.0;
         let mut attempts = 0;
         for (db, linked) in next.meta.borrow().gamma.iter() {
-            let attempt = test(db, linked, next.meta.clone(), self.program_synthesis);
+            let attempt = test(db, linked, next.meta.clone());
             if attempt.is_some() {
                 attempts += 1;
             }
             if let Some(Some(result)) = attempt {
-                total_weight += result.2.weight();
+                total_weight += result.3.weight();
                 options.push(result);
             }
         }
@@ -113,10 +112,10 @@ impl Prover {
         let num_jobs = NUM_JOBS.load(Ordering::Relaxed);
 
         if branching < 2 || next_result.tree_entropy > 1000.0 || num_jobs > 100 {
-            while let Some((assignment, equations, info)) = iter.next() {
+            while let Some((assignment, equations, redex_constraints, info)) = iter.next() {
                 let meta = next.meta.borrow_mut();
 
-                meta.assign(assignment, equations);
+                meta.assign(assignment, equations, redex_constraints);
 
                 // Start assignment statistics.
                 meta.stats.assignment_fence();
@@ -146,8 +145,8 @@ impl Prover {
 
         // Create cloned provers for each remaining option. 
         let provers: Vec<(Prover, W<Meta>, AssignmentInfo)> = iter.filter_map(
-            |(assignment, equations, info)| {
-            next.meta.borrow_mut().assign(assignment, equations);
+            |(assignment, equations, redex_constraints, info)| {
+            next.meta.borrow_mut().assign(assignment, equations, redex_constraints);
 
             next.meta.borrow_mut().branching = total_weight / info.weight();
             let result = self.try_clone();
@@ -206,7 +205,7 @@ impl Prover {
     /// Return a clone of this prover and a map of metavariables between this and the new clone, with `stats_buffer` moved into `stats`.
     pub fn try_clone(&self) -> Option<(Self, HashMap<W<Meta>, W<Meta>>)> {
         Meta::try_clone(self.meta.downgrade()).map(|(meta, map)| {
-            (Prover { meta, next_root: map.get(&self.next_root).unwrap().clone(), program_synthesis: self.program_synthesis }, map)
+            (Prover { meta, next_root: map.get(&self.next_root).unwrap().clone() }, map)
         })
     }
 
@@ -228,12 +227,12 @@ pub fn transfer(from: W<Meta>, mut to: W<Meta>, map: &mut HashMap<W<Meta>, W<Met
     let Some(from_assn) = &from.borrow().assignment else { return true; };
     
     let sub_es = to.borrow().gamma.sub_es(from_assn.head.0);
-    let Some(Some((to_assn, eqns, _info))) = 
-        test(from_assn.head, sub_es.linked.unwrap(), to.clone(), true) else { 
+    let Some(Some((to_assn, eqns, redex_constraints, _info))) = 
+        test(from_assn.head, sub_es.linked.unwrap(), to.clone()) else { 
             return false; 
         };
     
-    to.borrow_mut().assign(to_assn, eqns);
+    to.borrow_mut().assign(to_assn, eqns, redex_constraints);
 
     from_assn.args.iter().zip(to.borrow().assignment.as_ref().unwrap().args.iter()).all(
         |(from_child, to_child)|

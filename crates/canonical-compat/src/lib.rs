@@ -2,8 +2,10 @@ use canonical_core::core::*;
 use canonical_core::stats::*;
 use canonical_core::prover::Prover;
 use canonical_core::memory::S;
+// use crate::refine::*;
 pub mod ir;
 pub mod refine;
+pub mod reduction;
 use ir::*;
 use std::time::SystemTime;
 
@@ -19,7 +21,7 @@ macro_rules! t {
         }
     };
     ($s : expr, $($arg:expr ),*) => {
-        let mut args = Vec::new();
+        {let mut args = Vec::new();
         $(
             args.push($arg);
         )*
@@ -28,7 +30,7 @@ macro_rules! t {
             lets: vec![],
             head: $s.to_string(),
             args
-        }
+        }}
     };
 }
 
@@ -140,9 +142,22 @@ pub async fn main() {
     let mut owned_linked = Vec::new();
     let es = ES::new().append(node, &mut owned_linked);
     let tb_ref = S::new(tb);
-    let problem_bind = S::new(Bind { name: "proof".to_string(), irrelevant: false, value: Value::Opaque, major: false });
+    let problem_bind = S::new(Bind::new("proof".to_string()));
     let ty = Type(tb_ref.downgrade(), es, problem_bind.downgrade());
-    let prover = Prover::new(ty, false);
+    let prover = Prover::new(ty);
+
+    // let state = AppState {
+    //     current: prover.meta,
+    //     undo: Vec::new(),
+    //     redo: Vec::new(),
+    //     autofill: true,
+    //     constraints: false,
+    //     _owned_linked: owned_linked,
+    //     _owned_tb: tb_ref,
+    //     _owned_bind: problem_bind
+    // };
+
+    // start_server(state).await;
 
     // Print step count each second.
     std::thread::spawn(move || {
@@ -158,8 +173,9 @@ pub async fn main() {
     
     let now = SystemTime::now();
     prover.prove(&|term: Term| {
+        let mut owned_linked = Vec::new();
         println!("{}", now.elapsed().unwrap().as_secs_f32());
-        println!("{}", IRTerm::from_term(term.base, &ES::new()));
+        println!("{}", IRTerm::from_body::<false>(term.whnf::<false, ()>(&mut owned_linked, &mut ()), false));
         std::process::exit(0);
     }, true);
 }
