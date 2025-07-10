@@ -318,8 +318,6 @@ pub struct Rule {
 /// The `name` and `value` of a variable in the original input problem.
 pub struct Bind {
     pub name: String,
-    // Proof irrelevance, currently unused.
-    pub irrelevant: bool,
     pub rules: Vec<Rule>,
     pub redexes: Vec<Vec<Instruction>>,
 
@@ -330,7 +328,6 @@ impl Bind {
     pub fn new(name: String) -> Self {
         Bind {
             name,
-            irrelevant: false,
             rules: Vec::new(),
             redexes: Vec::new(),
             owned_bindings: Vec::new()

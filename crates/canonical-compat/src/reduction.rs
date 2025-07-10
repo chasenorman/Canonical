@@ -1,5 +1,4 @@
 use crate::*;
-use canonical_core::core::*;
 use canonical_core::memory::*;
 use std::collections::{HashMap, HashSet};
 
@@ -26,18 +25,23 @@ impl IRTerm {
         let mut owned_linked = Vec::new();
         // This function just returns strings, so the bindings don't need to be saved.
         let (es, bindings) = self.add_local(es, &mut owned_linked);
+        self.spine.free_variables(&es, result);
+    }
+}
 
+impl IRSpine {
+    pub fn free_variables(&self, es: &ES, result: &mut HashSet<String>) {
         if es.index_of(&self.head).is_none() {
             result.insert(self.head.clone());
         }
 
         for arg in &self.args {
-            arg.free_variables(&es, result);
+            arg.free_variables(es, result);
         }
     }
 }
 
-fn head_count(i: usize, builds: &Vec<(&mut Build, &IRTerm, ES)>) -> (u32, u32) {
+fn head_count(i: usize, builds: &Vec<(&mut Build, &IRSpine, ES)>) -> (u32, u32) {
     let mut owned_linked = Vec::new();
     let mut non_wildcards = 0;
     let mut distinct = 0;
@@ -46,7 +50,7 @@ fn head_count(i: usize, builds: &Vec<(&mut Build, &IRTerm, ES)>) -> (u32, u32) {
         let arg = &term.args[i];
         // This function just returns (u32, u32), so the bindings don't need to be saved.
         let (es, bindings) = arg.add_local(&es, &mut owned_linked);
-        if let Some((_, bind)) = es.index_of(&arg.head) {
+        if let Some((_, bind)) = es.index_of(&arg.spine.head) {
             if !seen.contains(&bind) {
                 distinct += 1;
             }
@@ -57,7 +61,7 @@ fn head_count(i: usize, builds: &Vec<(&mut Build, &IRTerm, ES)>) -> (u32, u32) {
     (non_wildcards, distinct)
 }
 
-fn get_children(builds: &Vec<(&mut Build, &IRTerm, ES)>) -> Vec<usize> {
+fn get_children(builds: &Vec<(&mut Build, &IRSpine, ES)>) -> Vec<usize> {
     let len = builds[0].1.args.len();
     let mut children: Vec<usize> = (0..len).filter(|&i| {
         head_count(i, builds).0 != 0
@@ -79,16 +83,16 @@ fn get_children(builds: &Vec<(&mut Build, &IRTerm, ES)>) -> Vec<usize> {
     return children;
 }
 
-fn get_bindings(build: &mut Build, term: &IRTerm, es: ES) -> S<Indexed<S<Bind>>> {
+fn get_bindings(build: &mut Build, term: &IRSpine, es: ES) -> S<Indexed<S<Bind>>> {
     let mut params: Vec<S<Bind>> = Vec::new();
     let mut found = false;
     
     for arg in term.args.iter() {
         let mut owned_linked = Vec::new();
         let (es, _bindings) = arg.add_local(&es, &mut owned_linked);
-        if es.index_of(&arg.head).is_none() && build.arguments.contains(&arg.head) {
-            build.arguments.remove(&arg.head);
-            params.push(S::new(Bind::new(arg.head.clone())));
+        if es.index_of(&arg.spine.head).is_none() && build.arguments.contains(&arg.spine.head) {
+            build.arguments.remove(&arg.spine.head);
+            params.push(S::new(Bind::new(arg.spine.head.clone())));
             found = true;
         } else {
             params.push(S::new(Bind::new("*".to_string())));
@@ -101,12 +105,10 @@ fn get_bindings(build: &mut Build, term: &IRTerm, es: ES) -> S<Indexed<S<Bind>>>
     });
 }
 
-fn _to_rules(state: Vec<(&mut Build, &IRTerm, ES)>, owned_linked: &mut Vec<S<Linked>>, owned_bindings: &mut Vec<S<Indexed<S<Bind>>>>) {
+fn _to_rules(state: Vec<(&mut Build, &IRSpine, ES)>, owned_linked: &mut Vec<S<Linked>>, owned_bindings: &mut Vec<S<Indexed<S<Bind>>>>) {
     // Partition by the head `Bind`.
-    let mut map: HashMap<W<Bind>, Vec<(&mut Build, &IRTerm, ES)>> = HashMap::new();
+    let mut map: HashMap<W<Bind>, Vec<(&mut Build, &IRSpine, ES)>> = HashMap::new();
     for (build, term, es) in state.into_iter() {
-        let (es, bindings) = term.add_local(&es, owned_linked);
-        owned_bindings.push(bindings);
         if let Some((_, bind)) = es.index_of(&term.head) {
             if !map.contains_key(&bind) {
                 map.insert(bind.clone(), Vec::new());
@@ -131,9 +133,11 @@ fn _to_rules(state: Vec<(&mut Build, &IRTerm, ES)>, owned_linked: &mut Vec<S<Lin
         }
 
         for i in children.into_iter() {
-            let mut new_builds: Vec<(&mut Build, &IRTerm, ES)> = Vec::new();
+            let mut new_builds: Vec<(&mut Build, &IRSpine, ES)> = Vec::new();
             for (build, term, es) in builds.iter_mut() {
-                new_builds.push((build, &term.args[i], es.clone()));
+                let (es, bindings) = term.args[i].add_local(&es, owned_linked);
+                owned_bindings.push(bindings);
+                new_builds.push((build, &term.args[i].spine, es));
             }
             _to_rules(new_builds, owned_linked, owned_bindings);
         }
@@ -151,7 +155,7 @@ pub fn to_rules(rules: &Vec<IRRule>, es: &ES, owned_linked: &mut Vec<S<Linked>>,
         }
     }).collect();
 
-    let state: Vec<(&mut Build, &IRTerm, ES)> = owned.iter_mut().zip(rules.iter()).map(|(build, rule)| {
+    let state: Vec<(&mut Build, &IRSpine, ES)> = owned.iter_mut().zip(rules.iter()).map(|(build, rule)| {
         (build, &rule.lhs, es.clone())
     }).collect();
 
@@ -179,14 +183,14 @@ pub fn to_rules(rules: &Vec<IRRule>, es: &ES, owned_linked: &mut Vec<S<Linked>>,
 
         Rule {
             pattern: build.pattern,
-            replacement: S::new(rule.rhs.to_term(&rhs_es)),
+            replacement: S::new(rule.rhs.to_body(rhs_es, S::new(Indexed { params: Vec::new(), lets: Vec::new() }), Vec::new())),
             attribution: rule.attribution.clone()
         }
     }).collect()
 }
 
 
-fn to_redex(term: &IRTerm, es: &ES, build: &mut Vec<Instruction>) {
+fn to_redex(term: &IRSpine, es: &ES, build: &mut Vec<Instruction>) {
     if let Some((_, bind)) = es.index_of(&term.head) {
         build.push(Instruction {
             bind: bind.clone(),
@@ -194,7 +198,7 @@ fn to_redex(term: &IRTerm, es: &ES, build: &mut Vec<Instruction>) {
             child: 0  
         });
         for (i, arg) in term.args.iter().enumerate() {
-            to_redex(arg, es, build);
+            to_redex(&arg.spine, es, build);
             build.last_mut().unwrap().child = i + 1;
         }
         build.last_mut().unwrap().parents += 1;

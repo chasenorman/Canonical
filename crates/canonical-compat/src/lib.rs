@@ -175,7 +175,7 @@ pub async fn main() {
     prover.prove(&|term: Term| {
         let mut owned_linked = Vec::new();
         println!("{}", now.elapsed().unwrap().as_secs_f32());
-        println!("{}", IRTerm::from_body::<false>(term.whnf::<false, ()>(&mut owned_linked, &mut ()), false));
+        println!("{}", IRSpine::from_body::<false>(term.whnf::<false, ()>(&mut owned_linked, &mut ()), false));
         std::process::exit(0);
     }, true);
 }
