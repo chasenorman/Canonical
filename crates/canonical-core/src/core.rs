@@ -81,6 +81,7 @@ pub struct Meta {
     pub typ: Option<Type>,
     /// The bindings introduced by this term.
     pub bindings: W<Indexed<S<Bind>>>,
+    pub from_original_problem: bool,
 
     pub _owned_bindings: Option<S<Indexed<S<Bind>>>>, // exclusively for ownership purposes.
 
@@ -103,6 +104,7 @@ impl Meta {
             equations: Vec::new(),
             redex_constraints: Vec::new(),
             bindings: typ.0.borrow().codomain.borrow().bindings.clone(),
+            from_original_problem: false,
             _owned_bindings: None,
             stats: SearchInfo::new(),
             stats_buffer: SearchInfo::new(),
@@ -514,9 +516,14 @@ impl Term {
                     replacement: Term { base: rule.replacement.downgrade(), es: es.clone() },
                     rule: &rule
                 }).collect();
-                if let ControlFlow::Break((term, rule)) = whnf.pattern_match(&mut matchers, owned_linked, attribution) {
+                let mut stuck : Option<W<Meta>> = None;
+                let matched = whnf.pattern_match(&mut matchers, owned_linked, attribution, whnf.0.base.borrow().from_original_problem, &mut stuck);
+                if let ControlFlow::Break((term, rule)) = matched {
                     attribution.attribute(rule);
                     return term.whnf::<rules, C>(owned_linked, attribution);
+                }
+                if let Some(meta) = stuck {
+                    return WHNF(self.clone(), Head::Meta(meta));
                 }
             }
             whnf
@@ -527,43 +534,50 @@ impl Term {
 }
 
 impl <'a> WHNF {
-    fn pattern_match<C: Attribution>(&self, patterns: &mut Vec<Matcher<'a>>, owned_linked: &mut Vec<S<Linked>>, attribution: &mut C) -> ControlFlow<(Term, &'a Rule)> {
-        let Head::Var(var) = &self.1 else {
-            patterns.retain_mut(|matcher| 
-                matcher.pattern.next().unwrap().is_none()
-            );
-            return ControlFlow::Continue(())
-        };
-        let mut recursive = Vec::new();
-        let mut ordering: Option<&Vec<usize>> = None;
-        
-        for i in (0..patterns.len()).rev() {
-            if let Some(symbol) = patterns[i].pattern.next().unwrap() {
-                let mut matcher = patterns.remove(i);
-                if symbol.bind.eq(&var.bind) {
-                    ordering = Some(&symbol.children);
-                    matcher.replacement.es = matcher.replacement.es.append(Node {
-                        entry: Entry::subst(Subst(WVec::new(&self.0.base.borrow().assignment.as_ref().unwrap().args), self.0.es.clone())),
-                        bindings: symbol.bindings.downgrade()
-                    }, owned_linked);
-                    if matcher.pattern.len() == 0 {
-                        return ControlFlow::Break((matcher.replacement.clone(), matcher.rule));
-                    }
-                    recursive.push(matcher);
+    fn pattern_match<C: Attribution>(&self, patterns: &mut Vec<Matcher<'a>>, owned_linked: &mut Vec<S<Linked>>, attribution: &mut C, can_stuck: bool, stuck: &mut Option<W<Meta>>) -> ControlFlow<(Term, &'a Rule)> {
+        match &self.1 {
+            Head::Meta(meta) => {
+                patterns.retain_mut(|matcher| 
+                    matcher.pattern.next().unwrap().is_none()
+                );
+                if can_stuck {
+                    stuck.replace(meta.clone());
                 }
+                ControlFlow::Continue(())
+            }
+            Head::Var(var) => {
+                let mut recursive = Vec::new();
+                let mut ordering: Option<&Vec<usize>> = None;
+                
+                for i in (0..patterns.len()).rev() {
+                    if let Some(symbol) = patterns[i].pattern.next().unwrap() {
+                        let mut matcher = patterns.remove(i);
+                        if symbol.bind.eq(&var.bind) {
+                            ordering = Some(&symbol.children);
+                            matcher.replacement.es = matcher.replacement.es.append(Node {
+                                entry: Entry::subst(Subst(WVec::new(&self.0.base.borrow().assignment.as_ref().unwrap().args), self.0.es.clone())),
+                                bindings: symbol.bindings.downgrade()
+                            }, owned_linked);
+                            if matcher.pattern.len() == 0 {
+                                return ControlFlow::Break((matcher.replacement.clone(), matcher.rule));
+                            }
+                            recursive.push(matcher);
+                        }
+                    }
+                }
+
+                if let Some(ordering) = ordering {
+                    for &i in ordering {
+                        let arg = self.0.arg(i, Entry::vars(next_u64()), owned_linked);
+                        arg.whnf::<true, C>(owned_linked, attribution).pattern_match(&mut recursive, owned_linked, attribution, can_stuck, stuck)?;
+                        if recursive.is_empty() { break; }
+                    }
+                }
+
+                patterns.append(&mut recursive); // TODO this changes the order
+                ControlFlow::Continue(())
             }
         }
-
-        if let Some(ordering) = ordering {
-            for &i in ordering {
-                let arg = self.0.arg(i, Entry::vars(next_u64()), owned_linked);
-                arg.whnf::<true, C>(owned_linked, attribution).pattern_match(&mut recursive, owned_linked, attribution)?;
-                if recursive.is_empty() { break; }
-            }
-        }
-
-        patterns.append(&mut recursive); // TODO this changes the order
-        ControlFlow::Continue(())
     }
 }
 
@@ -587,6 +601,7 @@ impl TypeBase {
                 equations: Vec::new(),
                 redex_constraints: Vec::new(),
                 bindings: self.types.borrow()[Index::Param(i)].as_ref().unwrap().borrow().codomain.borrow().bindings.clone(),
+                from_original_problem: false,
                 _owned_bindings: None,
                 stats: SearchInfo::new(),
                 stats_buffer: SearchInfo::new(),

@@ -5,7 +5,6 @@ import Mathlib.Algebra.Group.Hom.Defs
 import Mathlib.Algebra.Group.Defs
 import Mathlib.Data.Real.Basic
 open Mathlib.Tactic.CC
-open CompleteLattice
 open Function
 
 -- example : (A ∧ ¬A) → B :=
@@ -33,6 +32,7 @@ open Function
 --     ∀ (t y : List α), motive t y :=
 --   List.rec (motive := fun x => ∀ y, motive x y)
 
+-- -- Requires synth
 -- theorem reverse_reverse (as : List α) : as.reverse.reverse = as :=
 --   by canonical [List.recGen]
 

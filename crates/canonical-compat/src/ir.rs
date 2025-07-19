@@ -220,6 +220,7 @@ impl IRSpine {
             equations: Vec::new(),
             redex_constraints: Vec::new(),
             bindings: bindings.downgrade(),
+            from_original_problem: true,
             _owned_bindings: Some(bindings),
             stats: SearchInfo::new(),
             stats_buffer: SearchInfo::new(),
