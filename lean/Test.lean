@@ -3,8 +3,10 @@ import Mathlib.Data.ZMod.Basic
 import Canonical
 import Lean
 
-def test (a b : Real) : (a * b) * c = a * (b * c) := by
-  canonical [mul_assoc]
+def test : ∃ n : Nat, n * n = 4 := by
+  canonical
+
+def test2 : 0 ≠ 1 := by canonical
 
 -- example (x : ℝ) : x + 2 = 2 + x := by
 --   canonical [add_comm]

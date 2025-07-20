@@ -430,9 +430,14 @@ pub extern "C" fn term_to_string(term: *const LeanTerm) -> *const LeanStringObje
 
 /// `typToString` in Lean.
 #[no_mangle]
-pub extern "C" fn typ_to_string(t: *const LeanType) -> *const LeanStringObject {
-    to_ir_type(t).save("debug.json".to_string());
-    to_lean_string(&to_ir_type(t).to_string())
+pub extern "C" fn typ_to_string(typ: *const LeanType) -> *const LeanStringObject {
+    to_lean_string(&to_ir_type(typ).to_string())
+}
+
+/// `ruleToString in Lean`.
+#[no_mangle]
+pub extern "C" fn rule_to_string(rule: *const LeanRule) -> *const LeanStringObject {
+    to_lean_string(format!("{:?}", &to_ir_rule(rule)).as_str())
 }
 
 /// Starts a `Prover` on `ir_type`, appending solutions to `terms` and sending on `sender` once complete.
