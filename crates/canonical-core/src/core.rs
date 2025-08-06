@@ -1,17 +1,12 @@
-use thread_local_collect::tlm::channeled::Control;
 use Index::*;
-use crate::heuristic::next;
 use crate::memory::{S, W, WVec};
-use std::num::NonZero;
 use std::sync::atomic::{AtomicU64, Ordering};
-use string_interner::DefaultSymbol;
 use std::iter;
 use crate::stats::SearchInfo;
 use mimalloc::MiMalloc;
 use std::cell::RefCell;
-use std::ops::{ControlFlow, Range};
+use std::ops::ControlFlow;
 use core::slice::Iter;
-use std::collections::HashSet;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -494,7 +489,7 @@ impl Term {
     }
 
     /// Computes the weak head normal form. 
-    pub fn whnf<const rules: bool, C: Attribution>(&self, owned_linked: &mut Vec<S<Linked>>, attribution: &mut C) -> WHNF {
+    pub fn whnf<const RULES: bool, C: Attribution>(&self, owned_linked: &mut Vec<S<Linked>>, attribution: &mut C) -> WHNF {
         if let Some(assn) = &self.base.borrow().assignment {
             let es = self.es.sub_es(assn.head.0);
 
@@ -503,14 +498,14 @@ impl Term {
                 if let Some(subst) = &es.linked.as_ref().unwrap().borrow().node.entry.subst {
                     // If there is a substitution, and the index is a parameter, return the associated term in the substitution. 
                     let term = subst.get(i, Entry::subst(Subst(WVec::new(&assn.args), self.es.clone())), owned_linked);
-                    return term.whnf::<rules, C>(owned_linked, attribution);
+                    return term.whnf::<RULES, C>(owned_linked, attribution);
                 }
             }
 
             let var = es.get_var(assn.head.1);
             let bind = var.bind.clone();
             let whnf = WHNF(self.clone(), Head::Var(var));
-            if rules && !bind.borrow().rules.is_empty() {
+            if RULES && !bind.borrow().rules.is_empty() {
                 let mut matchers = bind.borrow().rules.iter().map(|rule| Matcher {
                     pattern: rule.pattern.iter(),
                     replacement: Term { base: rule.replacement.downgrade(), es: es.clone() },
@@ -520,7 +515,7 @@ impl Term {
                 let matched = whnf.pattern_match(&mut matchers, owned_linked, attribution, whnf.0.base.borrow().from_original_problem, &mut stuck);
                 if let ControlFlow::Break((term, rule)) = matched {
                     attribution.attribute(rule);
-                    return term.whnf::<rules, C>(owned_linked, attribution);
+                    return term.whnf::<RULES, C>(owned_linked, attribution);
                 }
                 if let Some(meta) = stuck {
                     return WHNF(self.clone(), Head::Meta(meta));

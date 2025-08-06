@@ -1,17 +1,11 @@
 use canonical_core::core::*;
-use canonical_core::memory::{S, W, WVec};
+use canonical_core::memory::{S, W};
 use canonical_core::search::test;
 use std::fmt;
 use serde::{Serialize, Deserialize};
 use std::fs::File;
-use string_interner::{DefaultBackend, StringInterner};
-use std::sync::Mutex;
-use std::sync::LazyLock;
 use crate::reduction::*;
 use canonical_core::stats::SearchInfo;
-
-/// We use String interning for the names of inductive types in the `Value`, for fast equality checking.
-static INTERNER : LazyLock<Mutex<StringInterner<DefaultBackend>>> = LazyLock::new(|| Mutex::new(StringInterner::default()));
 
 /// A variable with a `name`, and whether it is proof `irrelevant` (unused).
 #[derive(PartialEq, Eq, Serialize, Deserialize, Clone)]
@@ -111,7 +105,7 @@ fn disambiguate(bindings: W<Indexed<S<Bind>>>, es: &ES) -> Indexed<S<Bind>> {
 }
 
 impl IRSpine {
-    pub fn from_body<const rules: bool>(WHNF(whnf, head): WHNF, html: bool) -> IRSpine {
+    pub fn from_body<const RULES: bool>(WHNF(whnf, head): WHNF, html: bool) -> IRSpine {
         let mut owned_linked = Vec::new();
             
         match &head {
@@ -119,7 +113,7 @@ impl IRSpine {
                 if html {
                     IRSpine { head: Self::meta_html(meta.clone()), args: Vec::new(), premise_rules: Vec::new() }
                 } else {
-                    Self::from_meta::<rules>(whnf, meta.clone())
+                    Self::from_meta::<RULES>(whnf, meta.clone())
                 }
             }
             Head::Var(var) => {
@@ -133,7 +127,7 @@ impl IRSpine {
                         bindings: wbindings.clone()
                     }, &mut owned_linked);
                     _owned_bindings.push(bindings);
-                    IRTerm::from_lambda::<rules>(Term { base: arg.downgrade(), es }, wbindings.clone(), html)
+                    IRTerm::from_lambda::<RULES>(Term { base: arg.downgrade(), es }, wbindings.clone(), html)
                 }).collect();
 
                 IRSpine {
@@ -145,7 +139,7 @@ impl IRSpine {
         }
     }
 
-    fn from_meta<const rules: bool>(term: Term, stuck: W<Meta>) -> IRSpine {
+    fn from_meta<const RULES: bool>(term: Term, stuck: W<Meta>) -> IRSpine {
         let mut args = Vec::new();
         if !stuck.borrow().bindings.borrow().params.is_empty() {
             if let Some(subst) = &term.es.linked.as_ref().unwrap().borrow().node.entry.subst {
@@ -160,7 +154,7 @@ impl IRSpine {
                         bindings: wbindings.clone()
                     }, &mut owned_linked);
                     _owned_bindings.push(bindings);
-                    args.push(IRTerm::from_lambda::<rules>(Term { base: arg, es }, wbindings.clone(), false))
+                    args.push(IRTerm::from_lambda::<RULES>(Term { base: arg, es }, wbindings.clone(), false))
                 }
             }
         }
@@ -261,14 +255,14 @@ impl IRTerm {
         self.spine.to_body(es, bindings, owned_linked)
     }
 
-    pub fn from_lambda<const rules: bool>(term: Term, bindings: W<Indexed<S<Bind>>>, html: bool) -> IRTerm {
+    pub fn from_lambda<const RULES: bool>(term: Term, bindings: W<Indexed<S<Bind>>>, html: bool) -> IRTerm {
         let mut owned_linked = Vec::new();
         let params = bindings.borrow().params.iter().map(|b| IRVar { name: b.borrow().name.clone() }).collect();
         let lets = bindings.borrow().lets.iter().map(|b| 
             IRLet { var: IRVar { name: b.borrow().name.clone() }, rules: Vec::new() }).collect();
         let goal_rules = term.base.borrow().typ.as_ref().map(|typ| get_rules(&typ.codomain())).unwrap_or_default();
         // TODO special WHNF that does not get stuck and does not unfold definitions
-        IRTerm { params, lets, spine: IRSpine::from_body::<rules>(term.whnf::<rules, ()>(&mut owned_linked, &mut ()), html), goal_rules }
+        IRTerm { params, lets, spine: IRSpine::from_body::<RULES>(term.whnf::<RULES, ()>(&mut owned_linked, &mut ()), html), goal_rules }
     }
 }
 
