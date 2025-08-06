@@ -13,6 +13,10 @@ pub struct IRVar {
     pub name: String
 }
 
+/// A reduction rule `lhs ↦ rhs`. The `attribution` will be added
+/// to the `premiseRules` or `goalRules` arrays where used.
+/// Canonical will not return a term that reduces according to
+/// a rule that `isRedex`.
 #[derive(PartialEq, Eq, Serialize, Deserialize)]
 pub struct IRRule {
     pub lhs: IRSpine,
@@ -61,11 +65,12 @@ impl IRVar {
             name: self.name.clone(),
             rules: Vec::new(),
             redexes: Vec::new(),
-            owned_bindings: Vec::new()
+            _owned_bindings: Vec::new()
         }
     }
 }
 
+/// Obtains the attribution of reduction rules used in fully reducing `term`.
 fn get_rules(term: &Term) -> Vec<String> {
     let mut attribution = Vec::new();
     let mut owned_linked = Vec::new();
@@ -139,6 +144,7 @@ impl IRSpine {
         }
     }
 
+    /// To mimic the behavior of external type theories, we can sometimes show metavariables as though they are in application.
     fn from_meta<const RULES: bool>(term: Term, stuck: W<Meta>) -> IRSpine {
         let mut args = Vec::new();
         if !stuck.borrow().bindings.borrow().params.is_empty() {
@@ -165,6 +171,7 @@ impl IRSpine {
         }
     }
 
+    /// Produces an HTML string for this metavariable in the refinement UI. 
     fn meta_html(meta: W<Meta>) -> String {
         let varname = "?&NoBreak;".to_string() + &meta.borrow().typ.as_ref().unwrap().2.borrow().name;
         let meta_id = meta.borrow() as *const Meta as usize;

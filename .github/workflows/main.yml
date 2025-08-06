@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag'
+        description: 'Release tag (must already exist)'
         required: true
 
 jobs:
@@ -50,15 +50,46 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
+          $VerbosePreference = "Continue"
+          $DebugPreference = "Continue"
+      
+          Write-Host "=== Detecting Lean prefix ==="
           $prefix = & lean --print-prefix
+          if (-not $prefix) {
+            Write-Error "lean --print-prefix returned null or empty"
+          } else {
+            Write-Host "Lean prefix: $prefix"
+            if (-not (Test-Path $prefix)) {
+              Write-Error "Prefix path '$prefix' does not exist"
+            }
+          }
+      
+          $linkerPath = Join-Path $prefix "bin\clang.exe"
+          if (-not (Test-Path $linkerPath)) {
+            Write-Warning "Linker path '$linkerPath' does not exist"
+          } else {
+            Write-Host "Found linker at $linkerPath"
+          }
+      
+          Write-Host "=== Appending .cargo/config.toml ==="
           $lines = @(
             ""
             ""
             "[target.x86_64-pc-windows-gnu]"
-            "linker = '${prefix}\bin\clang.exe'"
+            "linker = '$linkerPath'"
           )
-          $lines | Out-File -FilePath .cargo/config.toml -Encoding utf8 -Append
-          cargo build -p canonical_lean --release --target x86_64-pc-windows-gnu
+          $cargoConfigPath = ".cargo/config.toml"
+          if (-not (Test-Path ".cargo")) {
+            New-Item -ItemType Directory -Path ".cargo" | Out-Null
+          }
+          $lines | Out-File -FilePath $cargoConfigPath -Encoding utf8 -Append
+      
+          Write-Host "=== .cargo/config.toml contents ==="
+          Get-Content $cargoConfigPath | ForEach-Object { Write-Host $_ }
+      
+          Write-Host "=== Running cargo build ==="
+          cargo build -p canonical_lean --release --target x86_64-pc-windows-gnu --verbose
 
       - name: Build canonical
         if: runner.os != 'Windows'

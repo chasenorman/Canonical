@@ -8,19 +8,7 @@ struct Build {
 }
 
 impl IRTerm {
-    pub fn add_local(&self, es: &ES, owned_linked: &mut Vec<S<Linked>>) -> (ES, S<Indexed<S<Bind>>>) {
-        let bindings = S::new(Indexed {
-            params: self.params.iter().map(|v| S::new(v.to_bind())).collect(),
-            lets: self.lets.iter().map(|d| S::new(d.var.to_bind())).collect()
-        });
-
-        let node = Node { 
-            entry: Entry { params_id: next_u64(), lets_id: next_u64(), subst: None, context: None }, 
-            bindings: bindings.downgrade() 
-        };
-        (es.append(node, owned_linked), bindings)
-    }
-
+    /// Determines the variables that are unbound in an IRTerm.
     pub fn free_variables(&self, es: &ES, result: &mut HashSet<String>) {
         let mut owned_linked = Vec::new();
         // This function just returns strings, so the bindings don't need to be saved.
@@ -41,6 +29,9 @@ impl IRSpine {
     }
 }
 
+/// For a vector `builds` that agree on a head symbol, this function determines
+/// the number of non-wildcard head symbols and the number of distinct head symbols
+/// that occur at argument `i` of each `Build`.
 fn head_count(i: usize, builds: &Vec<(&mut Build, &IRSpine, ES)>) -> (u32, u32) {
     let mut owned_linked = Vec::new();
     let mut non_wildcards = 0;
@@ -61,6 +52,10 @@ fn head_count(i: usize, builds: &Vec<(&mut Build, &IRSpine, ES)>) -> (u32, u32) 
     (non_wildcards, distinct)
 }
 
+/// Selects the most efficient ordering of arguments for a vector
+/// `builds` which agree on a head symbol. Efficient orderings eliminate
+/// candidate patterns as quickly as possible, and do not include arguments
+/// that consist of wildcards in all patterns.
 fn get_children(builds: &Vec<(&mut Build, &IRSpine, ES)>) -> Vec<usize> {
     let len = builds[0].1.args.len();
     let mut children: Vec<usize> = (0..len).filter(|&i| {
@@ -83,6 +78,8 @@ fn get_children(builds: &Vec<(&mut Build, &IRSpine, ES)>) -> Vec<usize> {
     return children;
 }
 
+/// If none of the arguments of `term` are the arguments of `build`, then empty bindings.
+/// Otherwise, bindings where the arguments have the appropriate name to be captured.
 fn get_bindings(build: &mut Build, term: &IRSpine, es: ES) -> S<Indexed<S<Bind>>> {
     let mut params: Vec<S<Bind>> = Vec::new();
     let mut found = false;
@@ -119,9 +116,12 @@ fn _to_rules(state: Vec<(&mut Build, &IRSpine, ES)>, owned_linked: &mut Vec<S<Li
         }
     }
 
+    // For each head symbol,
     for (bind, mut builds) in map.into_iter() {
+        // select an ordering of the arguments,
         let children: Vec<usize> = get_children(&builds);
 
+        // add symbols to each `build` indicating the head symbol and whether the arguments should be captured,
         for (build, term, es) in builds.iter_mut() {
             let bindings = get_bindings(build, term, es.clone());
             
@@ -132,6 +132,7 @@ fn _to_rules(state: Vec<(&mut Build, &IRSpine, ES)>, owned_linked: &mut Vec<S<Li
             }));
         }
 
+        // and recurse on the arguments.
         for i in children.into_iter() {
             let mut new_builds: Vec<(&mut Build, &IRSpine, ES)> = Vec::new();
             for (build, term, es) in builds.iter_mut() {
@@ -144,6 +145,7 @@ fn _to_rules(state: Vec<(&mut Build, &IRSpine, ES)>, owned_linked: &mut Vec<S<Li
     }
 }
 
+/// Converts a vector of `IRRule` into a vector of `Rule`.
 pub fn to_rules(rules: &Vec<IRRule>, es: &ES, owned_linked: &mut Vec<S<Linked>>, owned_bindings: &mut Vec<S<Indexed<S<Bind>>>>) -> Vec<Rule> {    
     let mut owned: Vec<Build> = rules.iter().map(|rule|{
         let mut arguments: HashSet<String> = HashSet::new();
@@ -162,6 +164,7 @@ pub fn to_rules(rules: &Vec<IRRule>, es: &ES, owned_linked: &mut Vec<S<Linked>>,
     _to_rules(state, owned_linked, owned_bindings);
 
     owned.into_iter().zip(rules.iter()).map(|(mut build, rule)| {
+        // Construct the `ES` under which `rhs` will be evaluated.
         let mut rhs_es = es.clone();
         for symbol in build.pattern.iter() {
             if let Some(symbol) = symbol {
@@ -205,7 +208,7 @@ fn to_redex(term: &IRSpine, es: &ES, build: &mut Vec<Instruction>) {
     }
 }
 
-
+/// Filters `IRRules` that are redexes, and converts them to `Vec<Instruction>`.
 pub fn to_redexes(rules: &Vec<IRRule>, es: &ES) -> Vec<Vec<Instruction>> {
     rules.iter().filter_map(|rule| {
         rule.is_redex.then(|| {
