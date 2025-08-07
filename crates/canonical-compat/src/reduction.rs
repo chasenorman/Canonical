@@ -24,8 +24,9 @@ impl IRTerm {
     pub fn free_variables(&self, es: &ES, result: &mut HashSet<String>) {
         let mut owned_linked = Vec::new();
         // This function just returns strings, so the bindings don't need to be saved.
-        let (es, _) = self.add_local(es, &mut owned_linked);
+        let (es, bindings) = self.add_local(es, &mut owned_linked);
         self.spine.free_variables(&es, result);
+        drop(bindings);
     }
 }
 
@@ -49,7 +50,7 @@ fn head_count(i: usize, builds: &Vec<(&mut Build, &IRSpine, ES)>) -> (u32, u32) 
     for (_, term, es) in builds.iter() {
         let arg = &term.args[i];
         // This function just returns (u32, u32), so the bindings don't need to be saved.
-        let (es, _) = arg.add_local(&es, &mut owned_linked);
+        let (es, bindings) = arg.add_local(&es, &mut owned_linked);
         if let Some((_, bind)) = es.index_of(&arg.spine.head) {
             if !seen.contains(&bind) {
                 distinct += 1;
@@ -57,6 +58,7 @@ fn head_count(i: usize, builds: &Vec<(&mut Build, &IRSpine, ES)>) -> (u32, u32) 
             seen.insert(bind.clone());
             non_wildcards += 1;
         }
+        drop(bindings);
     }
     (non_wildcards, distinct)
 }
