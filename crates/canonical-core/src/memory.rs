@@ -76,7 +76,7 @@ impl<T> WVec<T> {
 
     // Length of the underlying slice.
     pub fn len(&self) -> usize {
-        unsafe { (*self.ptr).len() }
+        unsafe { (&*self.ptr).len() }
     }
 }
 
@@ -92,7 +92,7 @@ impl<T> std::ops::Index<RangeFrom<usize>> for WVec<T> {
     type Output = [T];
 
     fn index(&self, index: RangeFrom<usize>) -> &Self::Output {
-        unsafe { &(*self.ptr)[index] }
+        unsafe { &(&*self.ptr)[index] }
     }
 }
 
@@ -100,7 +100,7 @@ impl<T> std::ops::Index<RangeTo<usize>> for WVec<T> {
     type Output = [T];
 
     fn index(&self, index: RangeTo<usize>) -> &Self::Output {
-        unsafe { &(*self.ptr)[index] }
+        unsafe { &(&*self.ptr)[index] }
     }
 }
 
