@@ -204,7 +204,7 @@ impl IRSpine {
 
     /// Finds the head `DeBruijnIndex` in the `es` and creates a Meta with `bindings` and recursively converted arguments.
     pub fn to_body(&self, es: ES, bindings: S<Indexed<S<Bind>>>, owned_linked: Vec<S<Linked>>) -> Meta {
-        let (head, bind) = es.index_of(&self.head).unwrap();
+        let (head, bind) = es.index_of(&self.head).expect(&format!("Undeclared variable: {}", self.head));
         let args = self.args.iter().map(|t| S::new(t.to_term(&es))).collect();
  
         Meta {

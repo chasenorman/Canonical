@@ -4,6 +4,7 @@ import Mathlib.Data.Set.Lattice
 import Mathlib.Algebra.Group.Hom.Defs
 import Mathlib.Algebra.Group.Defs
 import Mathlib.Data.Real.Basic
+import Mathlib.Tactic
 open Mathlib.Tactic.CC
 open Function
 
