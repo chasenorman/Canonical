@@ -212,7 +212,7 @@ impl RedexConstraint {
 impl Equation {
     /// Break down the equation into equations that are stuck on metavariables, added to `equations`.
     /// Returns false if the equation is violated.
-    fn reduce(&self, equations: &mut Vec<Equation>, changes: &mut Vec<W<Meta>>,
+    pub fn reduce(&self, equations: &mut Vec<Equation>, changes: &mut Vec<W<Meta>>,
               owned_linked: &mut Vec<S<Linked>>) -> bool {
         if owned_linked.len() > 1000 { return false }
         // Reduce both sides of the equation.
@@ -585,7 +585,7 @@ pub struct TypeBase {
 
 impl TypeBase {
     /// Create new metavariables to fill the parameters of this TypeBase.
-    pub fn args_metas(&self, parent: W<Meta>) -> Vec<S<Meta>> {
+    pub fn args_metas(&self, parent: Option<W<Meta>>) -> Vec<S<Meta>> {
         let arity = self.types.borrow().params.len();
         let mut args = Vec::with_capacity(arity);
         for i in 0..arity {
@@ -602,7 +602,7 @@ impl TypeBase {
                 stats_buffer: SearchInfo::new(),
                 has_rigid_equation: false,
                 branching: 1.0,
-                parent: Some(parent.clone())
+                parent: parent.clone()
             }))
         }
         args

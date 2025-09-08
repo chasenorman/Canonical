@@ -5,7 +5,9 @@ use canonical_core::memory::S;
 pub mod ir;
 pub mod refine;
 pub mod reduction;
+pub mod compiler;
 use ir::*;
+use compiler::*;
 use std::time::SystemTime;
 
 /// Manually construct a IRTerm body.
@@ -131,7 +133,8 @@ macro_rules! P {
 /// You can create a json file using the `+debug` tactic option.
 #[tokio::main]
 pub async fn main() {
-    let tb = IRType::load("lean/debug.json".to_string()).to_type(&ES::new());
+    let mut tb = IRType::load("lean/debug.json".to_string()).to_type(&ES::new());
+    compile(&mut tb);
     let entry = &tb.codomain.borrow().gamma.linked.as_ref().unwrap().borrow().node.entry;
     let node = Node { 
         entry: Entry { params_id: entry.params_id, lets_id: entry.lets_id, subst: None, 
