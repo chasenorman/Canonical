@@ -338,7 +338,7 @@ pub struct Entry {
     pub params_id: u64,
     pub lets_id: u64,
     pub subst: Option<Subst>,
-    pub context: Option<Context>
+    pub context: Option<Type>
 }
 
 impl Entry {
@@ -429,11 +429,26 @@ impl ES {
     pub fn iter(&self) -> impl Iterator<Item = (DeBruijnIndex, W<Linked>)> {
         iter::successors(self.linked.clone(), |node| 
             node.borrow().tail.clone() // Iterate over the linked list.
-        ).enumerate().flat_map(|(db, node)| 
+        ).enumerate().flat_map(move |(db, node)|
             // Iterate over `Index` at this `DeBruijn`.
             Indexed::iter(node.borrow().node.bindings.clone()).map(move |item| 
                 (DeBruijnIndex(DeBruijn(db as u32), item), node.clone())
             )
+        )
+    }
+
+    /// Returns an iterator of `DeBruijnIndex` in this `ES``, along with the `Linked` they are rooted at.
+    pub fn iter_unify(&self, id: usize) -> impl Iterator<Item = (DeBruijnIndex, W<Linked>)> {
+        iter::successors(self.linked.clone(), |node| 
+            node.borrow().tail.clone() // Iterate over the linked list.
+        ).enumerate().flat_map(move |(db, node)|
+            // Iterate over `Index` at this `DeBruijn`.
+            node.borrow().node.entry.context.as_ref().unwrap().0.borrow().unifications[id].iter().map(|item| 
+                (DeBruijnIndex(DeBruijn(db as u32), item.clone()), node.clone())
+            ).collect::<Vec<(DeBruijnIndex, W<Linked>)>>().into_iter()
+            // Indexed::iter(node.borrow().node.bindings.clone()).map(move |item| 
+            //     (DeBruijnIndex(DeBruijn(db as u32), item), node.clone())
+            // )
         )
     }
 
@@ -576,11 +591,20 @@ impl <'a> WHNF {
     }
 }
 
+pub enum Polarity { 
+    Premise, Goal
+}
+
 /// A `DeBruijnIndex`-ed type, with a `codomain` (return type)
 /// and parameter/let `types` 
 pub struct TypeBase {
     pub codomain: S<Meta>,
-    pub types: S<Indexed<Option<S<TypeBase>>>>
+    pub types: S<Indexed<Option<S<TypeBase>>>>,
+
+    // Compilation data
+    pub polarity: Polarity,
+    pub id: usize,
+    pub unifications: Vec<Vec<Index>>, 
 }
 
 impl TypeBase {
@@ -609,23 +633,6 @@ impl TypeBase {
     }
 }
 
-/// A context with a list of types, all with the same explicit substitution.
-/// Note that the explicit substitution does not contain the local variables unique to each element.
-/// The `Bind`s correspond to the variables bound in this `Context`. 
-pub struct Context(pub W<Indexed<Option<S<TypeBase>>>>, pub ES, pub W<Indexed<S<Bind>>>);
-
-impl Context {
-    /// Get the `i`th parameter type, specialized to `entry`.
-    pub fn get(&self, i: Index, entry: Entry, owned_linked: &mut Vec<S<Linked>>) -> Type {
-        let base = self.0.borrow()[i].as_ref().unwrap();
-        Type(
-            base.downgrade(), 
-            self.1.append(Node {entry, bindings: base.borrow().codomain.borrow().bindings.clone() }, owned_linked),
-            self.2.borrow()[i].downgrade()
-        )
-    }
-}
-
 /// A Type is a `DeBruijnIndex`-ed `TypeBase` with an explicit substitution `es` 
 /// that associates a `DeBruijnIndex` with a variable or term.
 /// The `Bind` corresponds to the variable in the original problem that has this `Type`. 
@@ -638,10 +645,14 @@ impl Type {
         Term { base: self.0.borrow().codomain.downgrade(), es: self.1.clone() }
     }
 
-    /// Get the parameter types.
-    pub fn params(&self) -> Context {
-        let bindings = self.0.borrow().codomain.borrow().bindings.clone();
-        Context(self.0.borrow().types.downgrade(), self.1.clone(), bindings)
+    /// Get the `i`th parameter type, specialized to `entry`.
+    pub fn get(&self, i: Index, entry: Entry, owned_linked: &mut Vec<S<Linked>>) -> Type {
+        let base = self.0.borrow().types.borrow()[i].as_ref().unwrap();
+        Type(
+            base.downgrade(), 
+            self.1.append(Node {entry, bindings: base.borrow().codomain.borrow().bindings.clone() }, owned_linked),
+            self.0.borrow().codomain.borrow().bindings.borrow()[i].downgrade()
+        )
     }
 }
 

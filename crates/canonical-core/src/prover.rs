@@ -94,7 +94,8 @@ impl Prover {
         let mut options = Vec::new();
         let mut total_weight = 0.0;
         let mut attempts = 0;
-        for (db, linked) in next.meta.borrow().gamma.iter() {
+        let base_id = next.meta.borrow().typ.as_ref().unwrap().0.borrow().id;
+        for (db, linked) in next.meta.borrow().gamma.iter_unify(base_id) {
             let attempt = test(db, linked, next.meta.clone());
             if attempt.is_some() {
                 attempts += 1;
