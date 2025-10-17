@@ -4,6 +4,15 @@ use crate::memory::*;
 #[derive(Clone, Copy)]
 enum Polarity { Goal, Premise }
 
+impl Polarity {
+    fn opposite(&self) -> Polarity {
+        match self {
+            Polarity::Goal => Polarity::Premise,
+            Polarity::Premise => Polarity::Goal
+        }
+    }
+}
+
 fn get_type(term: Term, owned_linked: &mut Vec<S<Linked>>) -> Option<Term> {
     let assn = term.base.borrow().assignment.as_ref().unwrap();
     let sub_es = term.es.sub_es(assn.head.0);
@@ -57,52 +66,35 @@ pub fn compile(typ: Type) {
     println!("Total unifications: {} / {}", count, goals.len() * premises.len());
 }
 
-fn opposite(polarity: Polarity) -> Polarity {
-    match polarity {
-        Polarity::Goal => Polarity::Premise,
-        Polarity::Premise => Polarity::Goal
-    }
-}
-
-fn length(es: ES) -> u32 {
-    let mut len = 0;
-    let mut current = es.linked.clone();
-    while let Some(linked) = current {
-        len += 1;
-        current = linked.borrow().tail.clone();
-    }
-    len
-}
-
 fn get_compilation_info(typ: Type, premises: &mut Vec<Type>, goals: &mut Vec<Type>, 
     polarity: Polarity, owned_linked: &mut Vec<S<Linked>>, owned_metas: &mut Vec<Vec<S<Meta>>>) {
-    match polarity {
-        Polarity::Goal => {
-            let es = typ.1.append(Node { entry: Entry {
-                params_id: next_u64(), lets_id: next_u64(), subst: None, 
-                context: Some(typ.clone())
-            }, bindings: typ.0.borrow().codomain.borrow().bindings.clone() }, owned_linked);
-            for i in Indexed::iter(typ.0.borrow().types.downgrade()) {
-                if let Some(child) = typ.0.borrow().types.borrow()[i].as_ref() {
-                    get_compilation_info(Type(child.downgrade(), es.clone(), typ.0.borrow().codomain.borrow().bindings.borrow()[i].downgrade()), premises, goals, Polarity::Premise, owned_linked, owned_metas)
-                }
-            }
-            goals.push(Type(typ.0.clone(), es, typ.2.clone()));
+    let entry = match polarity {
+        Polarity::Goal => Entry {
+            params_id: next_u64(), lets_id: next_u64(), subst: None, 
+            context: Some(typ.clone())
         },
         Polarity::Premise => {
             let metas = typ.0.borrow().args_metas(None);
-            let es = typ.1.append(Node { entry: Entry {
+            let result = Entry {
                 params_id: next_u64(), lets_id: next_u64(),
                 subst: Some(Subst(WVec::new(&metas), ES::new())),
                 context: Some(typ.clone())
-            }, bindings: typ.0.borrow().codomain.borrow().bindings.clone() }, owned_linked);
+            };
             owned_metas.push(metas);
-            for i in Indexed::iter(typ.0.borrow().types.downgrade()) {
-                if let Some(child) = typ.0.borrow().types.borrow()[i].as_ref() {
-                    get_compilation_info(Type(child.downgrade(), es.clone(), typ.0.borrow().codomain.borrow().bindings.borrow()[i].downgrade()), premises, goals, Polarity::Goal, owned_linked, owned_metas)
-                }
-            }
-            premises.push(Type(typ.0.clone(), es, typ.2.clone()));
+            result
         }
+    };
+
+    let es = typ.1.append(Node { entry: entry, bindings: typ.0.borrow().codomain.borrow().bindings.clone() }, owned_linked);
+
+    for i in Indexed::iter(typ.0.borrow().types.downgrade()) {
+        if let Some(child) = typ.0.borrow().types.borrow()[i].as_ref() {
+            get_compilation_info(Type(child.downgrade(), es.clone(), typ.0.borrow().codomain.borrow().bindings.borrow()[i].downgrade()), premises, goals, polarity.opposite(), owned_linked, owned_metas)
+        }
+    }
+
+    match polarity {
+        Polarity::Goal => { goals.push(Type(typ.0.clone(), es, typ.2.clone())); },
+        Polarity::Premise => { premises.push(Type(typ.0.clone(), es, typ.2.clone())); }
     }
 }
