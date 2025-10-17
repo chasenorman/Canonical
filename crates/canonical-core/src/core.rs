@@ -256,6 +256,7 @@ impl Equation {
 /// A substitution with a list of terms, all with the same explicit substitution.
 /// Note that the explicit substitution does not contain the local variables unique to each
 /// element of the vector.
+#[derive(Clone)]
 pub struct Subst(pub WVec<S<Meta>>, pub ES);
 
 impl Subst {
@@ -334,6 +335,7 @@ impl Bind {
 
 /// An explicit substitution entry, consisting of identifiers for the params and lets
 /// and optionally a substitution or typing context. 
+#[derive(Clone)]
 pub struct Entry {
     pub params_id: u64,
     pub lets_id: u64,
@@ -437,20 +439,20 @@ impl ES {
         )
     }
 
-    /// Returns an iterator of `DeBruijnIndex` in this `ES``, along with the `Linked` they are rooted at.
-    pub fn iter_unify(&self, id: usize) -> impl Iterator<Item = (DeBruijnIndex, W<Linked>)> {
-        iter::successors(self.linked.clone(), |node| 
-            node.borrow().tail.clone() // Iterate over the linked list.
-        ).enumerate().flat_map(move |(db, node)|
-            // Iterate over `Index` at this `DeBruijn`.
-            node.borrow().node.entry.context.as_ref().unwrap().0.borrow().unifications[id].iter().map(|item| 
-                (DeBruijnIndex(DeBruijn(db as u32), item.clone()), node.clone())
-            ).collect::<Vec<(DeBruijnIndex, W<Linked>)>>().into_iter()
-            // Indexed::iter(node.borrow().node.bindings.clone()).map(move |item| 
-            //     (DeBruijnIndex(DeBruijn(db as u32), item), node.clone())
-            // )
-        )
-    }
+    // /// Returns an iterator of `DeBruijnIndex` in this `ES``, along with the `Linked` they are rooted at.
+    // pub fn iter_unify(&self, id: usize) -> impl Iterator<Item = (DeBruijnIndex, W<Linked>)> {
+    //     iter::successors(self.linked.clone(), |node| 
+    //         node.borrow().tail.clone() // Iterate over the linked list.
+    //     ).enumerate().flat_map(move |(db, node)|
+    //         // Iterate over `Index` at this `DeBruijn`.
+    //         node.borrow().node.entry.context.as_ref().unwrap().0.borrow().unifications[id].iter().map(|item| 
+    //             (DeBruijnIndex(DeBruijn(db as u32), item.clone()), node.clone())
+    //         ).collect::<Vec<(DeBruijnIndex, W<Linked>)>>().into_iter()
+    //         // Indexed::iter(node.borrow().node.bindings.clone()).map(move |item| 
+    //         //     (DeBruijnIndex(DeBruijn(db as u32), item), node.clone())
+    //         // )
+    //     )
+    // }
 
     /// Finds the `DeBruijnIndex` and `Bind` with a certain `name` in this `ES`.
     pub fn index_of(&self, name: &String) -> Option<(DeBruijnIndex, W<Bind>)> {
@@ -600,11 +602,6 @@ pub enum Polarity {
 pub struct TypeBase {
     pub codomain: S<Meta>,
     pub types: S<Indexed<Option<S<TypeBase>>>>,
-
-    // Compilation data
-    pub polarity: Polarity,
-    pub id: usize,
-    pub unifications: Vec<Vec<Index>>, 
 }
 
 impl TypeBase {

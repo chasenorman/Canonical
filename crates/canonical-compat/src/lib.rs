@@ -5,9 +5,7 @@ use canonical_core::memory::S;
 pub mod ir;
 pub mod refine;
 pub mod reduction;
-pub mod compiler;
 use ir::*;
-use compiler::*;
 use std::time::SystemTime;
 
 /// Manually construct a IRTerm body.
@@ -133,20 +131,11 @@ macro_rules! P {
 /// You can create a json file using the `+debug` tactic option.
 #[tokio::main]
 pub async fn main() {
-    let mut tb = IRType::load("lean/debug.json".to_string()).to_type(&ES::new());
-    compile(&mut tb);
-    let entry = &tb.codomain.borrow().gamma.linked.as_ref().unwrap().borrow().node.entry;
-    let node = Node { 
-        entry: Entry { params_id: entry.params_id, lets_id: entry.lets_id, subst: None, 
-            context: Some(Context(tb.types.downgrade(), tb.codomain.borrow().gamma.clone(), tb.codomain.borrow().bindings.clone()))}, 
-        bindings: tb.codomain.borrow().gamma.linked.as_ref().unwrap().borrow().node.bindings.clone() 
-    };
-    let mut owned_linked = Vec::new();
-    let es = ES::new().append(node, &mut owned_linked);
-    let tb_ref = S::new(tb);
+    let tb = S::new(IRType::load("lean/debug.json".to_string()).to_type(&ES::new()));
     let problem_bind = S::new(Bind::new("proof".to_string()));
-    let ty = Type(tb_ref.downgrade(), es, problem_bind.downgrade());
-    let prover = Prover::new(ty);
+    let mut owned_linked = Vec::new();
+    
+    let prover = Prover::new(tb.downgrade(), problem_bind.downgrade(), &mut owned_linked);
 
     // let state = AppState {
     //     current: prover.meta,

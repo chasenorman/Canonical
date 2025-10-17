@@ -48,7 +48,9 @@ fn head_count(i: usize, builds: &Vec<(&mut Build, &IRSpine, ES)>) -> (u32, u32) 
     let mut distinct = 0;
     let mut seen = HashSet::new();
     for (_, term, es) in builds.iter() {
-        let arg = &term.args[i];
+        let arg = &term.args.get(i).expect(
+            &format!("Not fully applied: {term}")
+        );
         // This function just returns (u32, u32), so the bindings don't need to be saved.
         let (es, bindings) = arg.add_local(&es, &mut owned_linked);
         if let Some((_, bind)) = es.index_of(&arg.spine.head) {

@@ -5,3 +5,4 @@ pub mod print;
 pub mod memory;
 pub mod stats;
 pub mod prover;
+pub mod compiler;

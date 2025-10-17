@@ -2,6 +2,7 @@ use crate::search::*;
 use crate::core::*;
 use crate::memory::*;
 use crate::stats::*;
+use crate::compiler::compile;
 use rayon::prelude::*;
 use std::sync::atomic::{Ordering, AtomicUsize};
 use std::sync::Arc;
@@ -22,8 +23,17 @@ unsafe impl Send for W<Meta> {}
 
 impl Prover {
     /// Creates a new Prover for the specified `Type`. 
-    pub fn new(typ: Type) -> Self {
-        let meta = S::new(Meta::new(typ));
+    pub fn new(tb_ref: W<TypeBase>, problem_bind: W<Bind>, owned_linked: &mut Vec<S<Linked>>) -> Self {
+        let entry = &tb_ref.borrow().codomain.borrow().gamma.linked.as_ref().unwrap().borrow().node.entry;
+        let node = Node { 
+            entry: Entry { params_id: entry.params_id, lets_id: entry.lets_id, subst: None, 
+                context: Some(Type(tb_ref.clone(), tb_ref.borrow().codomain.borrow().gamma.clone(), problem_bind.clone()))}, 
+            bindings: tb_ref.borrow().codomain.borrow().gamma.linked.as_ref().unwrap().borrow().node.bindings.clone() 
+        };
+        let es = ES::new().append(node, owned_linked);
+        compile(Type(tb_ref.clone(), ES::new(), problem_bind.clone()));
+        let ty = Type(tb_ref.clone(), es, problem_bind.clone());
+        let meta = S::new(Meta::new(ty));
         Prover { next_root: meta.downgrade(), meta }
     }
 
@@ -94,8 +104,7 @@ impl Prover {
         let mut options = Vec::new();
         let mut total_weight = 0.0;
         let mut attempts = 0;
-        let base_id = next.meta.borrow().typ.as_ref().unwrap().0.borrow().id;
-        for (db, linked) in next.meta.borrow().gamma.iter_unify(base_id) {
+        for (db, linked) in next.meta.borrow().gamma.iter() {
             let attempt = test(db, linked, next.meta.clone());
             if attempt.is_some() {
                 attempts += 1;

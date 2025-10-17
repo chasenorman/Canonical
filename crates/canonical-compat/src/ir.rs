@@ -169,8 +169,7 @@ impl IRSpine {
         let varname = "?&NoBreak;".to_string() + &meta.borrow().typ.as_ref().unwrap().2.borrow().name;
         let meta_id = meta.borrow() as *const Meta as usize;
 
-        let base_id = meta.borrow().typ.as_ref().unwrap().0.borrow().id;
-        let options = meta.borrow().gamma.iter_unify(base_id).filter_map(|(db, linked)| {
+        let options = meta.borrow().gamma.iter().filter_map(|(db, linked)| {
             if let Some(Some(result)) = test(db, linked, meta.clone()) {
                 let name = result.0.bind.borrow().name.clone();
 
