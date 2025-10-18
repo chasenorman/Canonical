@@ -11,8 +11,8 @@ def add (n : Nat') : Nat' → Nat'
 | Nat'.zero => n
 | Nat'.succ m => Nat'.succ (add n m)
 
-example (a b : Nat') : add a b = add b a := by
-  canonical 30 +debug
+-- example (a b : Nat') : add a b = add b a := by
+--   canonical 30 +debug
 
 
 variables {α : Type} {n m : Nat}
@@ -24,7 +24,7 @@ inductive Vec (A : Type) : Nat → Type where
 #check Vec.vnil
 -- Vec.vcons A.1563 a.1564 n.1565 a.1566
 noncomputable def append : Vec α n → Vec α m → Vec α (m + n) :=
-  by canonical +debug
+  by canonical
 
 
 

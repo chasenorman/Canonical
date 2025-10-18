@@ -439,21 +439,6 @@ impl ES {
         )
     }
 
-    // /// Returns an iterator of `DeBruijnIndex` in this `ES``, along with the `Linked` they are rooted at.
-    // pub fn iter_unify(&self, id: usize) -> impl Iterator<Item = (DeBruijnIndex, W<Linked>)> {
-    //     iter::successors(self.linked.clone(), |node| 
-    //         node.borrow().tail.clone() // Iterate over the linked list.
-    //     ).enumerate().flat_map(move |(db, node)|
-    //         // Iterate over `Index` at this `DeBruijn`.
-    //         node.borrow().node.entry.context.as_ref().unwrap().0.borrow().unifications[id].iter().map(|item| 
-    //             (DeBruijnIndex(DeBruijn(db as u32), item.clone()), node.clone())
-    //         ).collect::<Vec<(DeBruijnIndex, W<Linked>)>>().into_iter()
-    //         // Indexed::iter(node.borrow().node.bindings.clone()).map(move |item| 
-    //         //     (DeBruijnIndex(DeBruijn(db as u32), item), node.clone())
-    //         // )
-    //     )
-    // }
-
     /// Finds the `DeBruijnIndex` and `Bind` with a certain `name` in this `ES`.
     pub fn index_of(&self, name: &String) -> Option<(DeBruijnIndex, W<Bind>)> {
         self.iter().find(|(db, linked)| &linked.borrow().node.bindings.borrow()[db.1].borrow().name == name)

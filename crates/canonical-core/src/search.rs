@@ -31,10 +31,7 @@ impl DFSResult {
 /// Construct and test the `Assignment` from refining `meta` with `head`.
 pub fn test(head: DeBruijnIndex, curr: W<Linked>, mut meta: W<Meta>) -> Option<Option<(Assignment, Vec<Equation>, Vec<RedexConstraint>, AssignmentInfo)>> {
     let context = curr.borrow().node.entry.context.as_ref().unwrap();
-    let Some(tb) = &context.0.borrow().types.borrow()[head.1] else {
-        // Variable does not have a type, we are not permitted to apply it.
-        return None;
-    };
+    let tb = context.0.borrow().types.borrow()[head.1].as_ref().unwrap();
     let args: Vec<S<Meta>> = tb.borrow().args_metas(Some(meta.clone()));
     let gamma = meta.borrow().gamma.clone();
     let mut _owned_linked = Vec::new();
