@@ -1,5 +1,11 @@
 use crate::core::*;
 use crate::memory::*;
+use std::sync::{Arc, atomic::{AtomicU32, Ordering}};
+use arc_swap::ArcSwap;
+use hashbrown::HashMap;
+use once_cell::sync::Lazy;
+
+pub static COMPILATION: Lazy<ArcSwap<HashMap<usize, Vec<Index>>>> = Lazy::new(|| ArcSwap::from_pointee(HashMap::new()));
 
 #[derive(Clone, Copy)]
 enum Polarity { Goal, Premise }
@@ -46,28 +52,28 @@ pub fn unify(goal: Term, premise: Term, depth: u32) -> bool {
 }
 
 pub fn compile(typ: Type) {
-    let mut premises = Vec::new();
     let mut goals = Vec::new();
     let mut owned_linked = Vec::new();
     let mut owned_metas = Vec::new();
-    get_compilation_info(typ, &mut premises, &mut goals, Polarity::Goal, &mut owned_linked, &mut owned_metas);
-    println!("{:?}", premises.iter().map(|typ| typ.to_string()).collect::<Vec<_>>());
-    println!("{:?}", goals.iter().map(|typ| typ.to_string()).collect::<Vec<_>>());
+    get_compilation_info(typ, &mut goals, Polarity::Goal, &mut owned_linked, &mut owned_metas);
+    // println!("{:?}", goals.iter().map(|(typ, children)| typ.2.name).collect::<Vec<_>>());
     let mut count: u32 = 0;
     for goal in goals.iter() {
-        for premise in premises.iter() {
-            let success = unify(goal.codomain(), premise.codomain(), 0);
-            if success {
-                count += 1;
+        for goal2 in goals.iter() {
+            for premise in goal2.1.iter() {
+                let success = unify(goal.0.codomain(), premise.0.codomain(), 0);
+                if success {
+                    count += 1;
+                }
+                println!("{} <- {}: {}", goal.0.2.borrow().name, premise.0.2.borrow().name, success);
             }
-            println!("{} <- {}: {}", goal.2.borrow().name, premise.2.borrow().name, success);
         }
     }
-    println!("Total unifications: {} / {}", count, goals.len() * premises.len());
+    println!("Total unifications: {}", count);
 }
 
-fn get_compilation_info(typ: Type, premises: &mut Vec<Type>, goals: &mut Vec<Type>, 
-    polarity: Polarity, owned_linked: &mut Vec<S<Linked>>, owned_metas: &mut Vec<Vec<S<Meta>>>) {
+fn get_compilation_info(typ: Type, goals: &mut Vec<(Type, Vec<(Type, Index)>)>, 
+    polarity: Polarity, owned_linked: &mut Vec<S<Linked>>, owned_metas: &mut Vec<Vec<S<Meta>>>) -> Type {
     let entry = match polarity {
         Polarity::Goal => Entry {
             params_id: next_u64(), lets_id: next_u64(), subst: None, 
@@ -87,14 +93,19 @@ fn get_compilation_info(typ: Type, premises: &mut Vec<Type>, goals: &mut Vec<Typ
 
     let es = typ.1.append(Node { entry: entry, bindings: typ.0.borrow().codomain.borrow().bindings.clone() }, owned_linked);
 
+    let mut children = Vec::new();
     for i in Indexed::iter(typ.0.borrow().types.downgrade()) {
         if let Some(child) = typ.0.borrow().types.borrow()[i].as_ref() {
-            get_compilation_info(Type(child.downgrade(), es.clone(), typ.0.borrow().codomain.borrow().bindings.borrow()[i].downgrade()), premises, goals, polarity.opposite(), owned_linked, owned_metas)
+            let child = get_compilation_info(Type(child.downgrade(), es.clone(), typ.0.borrow().codomain.borrow().bindings.borrow()[i].downgrade()), goals, polarity.opposite(), owned_linked, owned_metas);
+            children.push((child, i));
         }
     }
 
-    match polarity {
-        Polarity::Goal => { goals.push(Type(typ.0.clone(), es, typ.2.clone())); },
-        Polarity::Premise => { premises.push(Type(typ.0.clone(), es, typ.2.clone())); }
+    let typ = Type(typ.0.clone(), es.clone(), typ.2.clone());
+
+    if matches!(polarity, Polarity::Goal) {
+        goals.push((typ.clone(), children));
     }
+
+    return typ;
 }
