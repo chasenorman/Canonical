@@ -1,6 +1,6 @@
 use crate::core::*;
 use crate::memory::*;
-use std::sync::{Arc, atomic::{AtomicU32, Ordering}};
+use std::sync::Arc;
 use arc_swap::ArcSwap;
 use hashbrown::HashMap;
 use once_cell::sync::Lazy;
@@ -115,7 +115,8 @@ fn get_compilation_info(typ: Type, goals: &mut Vec<(Type, Vec<(Type, Index)>)>,
     let es = typ.1.append(Node { entry: entry, bindings: typ.0.borrow().codomain.borrow().bindings.clone() }, owned_linked);
 
     let mut children = Vec::new();
-    for i in Indexed::iter(typ.0.borrow().types.downgrade()) {
+
+    for i in Indexed::iter(typ.0.borrow().types.borrow()) {
         if let Some(child) = typ.0.borrow().types.borrow()[i].as_ref() {
             let child = get_compilation_info(Type(child.downgrade(), es.clone(), typ.0.borrow().codomain.borrow().bindings.borrow()[i].downgrade()), goals, polarity.opposite(), owned_linked, owned_metas);
             children.push((child, i));

@@ -288,10 +288,10 @@ impl<T> std::ops::Index<Index> for Indexed<T> {
 impl<T> Indexed<T> {
     /// We iterate over params first, as free variables are generally more important than consts.
     /// We iterate over params and lets in reverse order to prioritize dependently typed variables.
-    pub fn iter(indexed: W<Indexed<T>>) -> Box<dyn Iterator<Item = Index>> {
-        let params_iter = (0..indexed.borrow().params.len()).rev().map(Param);
-        let lets_iter = (0..indexed.borrow().lets.len()).rev().map(Let);
-        Box::new(params_iter.chain(lets_iter))
+    pub fn iter(indexed: &Indexed<T>) -> impl Iterator<Item = Index> + '_ {
+        let params_iter = (0..indexed.params.len()).rev().map(Param);
+        let lets_iter = (0..indexed.lets.len()).rev().map(Let);
+        params_iter.chain(lets_iter)
     }
 }
 
@@ -431,12 +431,10 @@ impl ES {
     pub fn iter(&self) -> impl Iterator<Item = (DeBruijnIndex, W<Linked>)> {
         iter::successors(self.linked.clone(), |node| 
             node.borrow().tail.clone() // Iterate over the linked list.
-        ).enumerate().flat_map(move |(db, node)|
-            // Iterate over `Index` at this `DeBruijn`.
-            Indexed::iter(node.borrow().node.bindings.clone()).map(move |item| 
-                (DeBruijnIndex(DeBruijn(db as u32), item), node.clone())
-            )
-        )
+        ).enumerate().flat_map(move |(db, node)| {
+            let indices: Vec<Index> = Indexed::iter(node.borrow().node.bindings.borrow()).collect();
+            indices.into_iter().map(move |item| (DeBruijnIndex(DeBruijn(db as u32), item), node.clone()))
+        })
     }
 
     /// Finds the `DeBruijnIndex` and `Bind` with a certain `name` in this `ES`.

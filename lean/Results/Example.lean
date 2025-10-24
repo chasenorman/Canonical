@@ -13,7 +13,7 @@ example : (A ∧ ¬A) → B :=
 
 
 theorem Cantor (f : X → Set X) : ¬Surjective f :=
-  by canonical +debug [false_of_a_eq_not_a, congrFun]
+  by canonical [false_of_a_eq_not_a, congrFun]
 
 
 -- inductive Vec (A : Type) : Nat → Type u where
