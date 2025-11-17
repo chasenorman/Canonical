@@ -9,7 +9,7 @@ git = "https://github.com/chasenorman/CanonicalLean"
 [[require]]
 name = "mathlib"
 scope = "leanprover-community"
-rev = "v4.22.0"
+rev = "v4.25.0"
 
 [[lean_lib]]
 name = "Test"

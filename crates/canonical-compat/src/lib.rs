@@ -129,8 +129,8 @@ macro_rules! P {
 
 /// Entrypoint for CLI, which reads a problem from a json file. 
 /// You can create a json file using the `+debug` tactic option.
-#[tokio::main]
-pub async fn main() {
+// #[tokio::main]
+pub fn main() {
     let tb = IRType::load("lean/debug.json".to_string()).to_type(&ES::new());
     let entry = &tb.codomain.borrow().gamma.linked.as_ref().unwrap().borrow().node.entry;
     let node = Node { 

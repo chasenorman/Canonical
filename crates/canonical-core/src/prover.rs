@@ -41,8 +41,12 @@ impl Prover {
         
         // Iterative deepening. 
         while RUN.load(Ordering::Relaxed) {
+            let max_size = ((depth as f32).ln_1p()*4.0) as u32;
+            if max_size > 200 {
+                panic!("Stack overflow.");
+            }
             if verbose { println!("entropy (log): {}", (depth as f32).ln_1p()); }
-            let result = self.parallel_dfs(depth, (depth.ln_1p()*4.0) as u32, callback);
+            let result = self.parallel_dfs(depth, max_size, callback);
             if verbose { println!("ratio: {}", result.steps as f32 / previous_steps as f32); }
             
             previous_steps = result.steps;

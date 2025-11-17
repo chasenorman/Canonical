@@ -13,6 +13,7 @@ use std::sync::{Mutex, Arc, Condvar};
 use once_cell::sync::Lazy;
 use canonical_compat::refine::*;
 use tokio::runtime::Runtime;
+use std::panic;
 // use std::fs::OpenOptions;
 // use std::io::Write;
 
@@ -362,7 +363,7 @@ pub struct CanonicalResult {
     branching: f32
 }
 
-fn to_lean_result(terms: *const LeanArrayObject, result: DFSResult, last_level_steps: u32) -> *const CanonicalResult {
+fn to_canonical_result(terms: *const LeanArrayObject, result: DFSResult, last_level_steps: u32) -> *const CanonicalResult {
     unsafe {
         let scalar_sz = std::mem::size_of::<u32>()*4 + std::mem::size_of::<f32>();
         let o = lean_alloc_ctor(0, 1, scalar_sz) as *mut CanonicalResult;
@@ -500,97 +501,123 @@ impl Lock {
 /// This lock ensures that we only have one instance running at a time.
 static INSTANCE: Lazy<Lock> = Lazy::new(|| Lock::new());
 
+unsafe fn to_lean_result<F, G>(f: F, g: G) -> *const LeanResult
+where
+    F: FnOnce() -> *const LeanObject + panic::UnwindSafe,
+    G: FnOnce() -> ()
+{
+    std::panic::set_hook(Box::new(|_| {}));
+    match panic::catch_unwind(f) {
+        Ok(ptr) => lean_io_result_mk_ok(ptr),
+        Err(e) => {
+            g();
+            let default = "internal panic".to_string();
+            let msg = e.downcast_ref::<String>().unwrap_or(&default);
+            lean_io_result_mk_error(lean_mk_io_user_error(to_lean_string(msg)))
+        }
+    }
+}
 /// `canonical` in Lean.
 #[no_mangle]
 pub unsafe extern "C" fn canonical(typ: *const LeanType, timeout: u64, count: usize) -> *const LeanResult {
-    INSTANCE.lock();
-    let ir_type = to_ir_type(typ);
-    let (tx, rx) = mpsc::channel();
+    to_lean_result(|| {
+        INSTANCE.lock();
+        let ir_type = to_ir_type(typ);
+        let (tx, rx) = mpsc::channel();
 
-    let arc : Arc<Mutex<Vec<IRTerm>>> = Arc::new(Mutex::new(Vec::new()));
-    let arc_clone = arc.clone();
-    let worker = thread::spawn(move || {
-        main(ir_type, tx, count, arc_clone)
-    });
+        let arc : Arc<Mutex<Vec<IRTerm>>> = Arc::new(Mutex::new(Vec::new()));
+        let arc_clone = arc.clone();
+        let worker = thread::spawn(move || {
+            main(ir_type, tx, count, arc_clone)
+        });
 
-    // Regularly check whether the task has been cancelled from Lean, until the timout is reached. 
-    let start = Instant::now();
-    while start.elapsed() < Duration::from_secs(timeout) {
-        match rx.recv_timeout(Duration::from_millis(10)) {
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                if lean_io_check_canceled_core() || !RUN.load(Ordering::Relaxed) {
-                    break;
+        // Regularly check whether the task has been cancelled from Lean, until the timout is reached. 
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(timeout) {
+            match rx.recv_timeout(Duration::from_millis(10)) {
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    if lean_io_check_canceled_core() || !RUN.load(Ordering::Relaxed) {
+                        break;
+                    }
                 }
+                _ => break,
             }
-            _ => break,
         }
-    }
 
-    RUN.store(false, Ordering::Relaxed);
-    let (result, last_level_steps) = worker.join().unwrap();
+        RUN.store(false, Ordering::Relaxed);
+        match worker.join() {
+            Ok((result, last_level_steps)) => {
+                let v = arc.lock().unwrap();
+                let terms = to_lean_array(&v.iter().map(|x| to_lean_term(x) as *const LeanObject).collect());
 
-    let v = arc.lock().unwrap();
-    let terms = to_lean_array(&v.iter().map(|x| to_lean_term(x) as *const LeanObject).collect());
-
-    INSTANCE.unlock();
-    lean_io_result_mk_ok(to_lean_result(terms, result, last_level_steps) as *const LeanObject)
+                INSTANCE.unlock();
+                to_canonical_result(terms, result, last_level_steps) as *const LeanObject
+            }
+            Err(e) => {
+                panic!("{}", e.downcast_ref::<&str>().unwrap_or(&"internal panic"));
+            }
+        }
+    }, || {
+        RUN.store(false, Ordering::Relaxed);
+        INSTANCE.unlock();
+    })
 }
 
 
 /// `refine` in Lean.
 #[no_mangle]
 pub unsafe extern "C" fn refine(typ: *const LeanType) -> *const LeanResult {
-    let ir_type = to_ir_type(typ);
-    let tb = ir_type.to_type(&ES::new());
-    let entry = &tb.codomain.borrow().gamma.linked.as_ref().unwrap().borrow().node.entry;
-    let node = Node { 
-        entry: Entry { params_id: entry.params_id, lets_id: entry.lets_id, subst: None, 
-            context: Some(Context(tb.types.downgrade(), tb.codomain.borrow().gamma.clone(), tb.codomain.borrow().bindings.clone()))}, 
-        bindings: tb.codomain.borrow().gamma.linked.as_ref().unwrap().borrow().node.bindings.clone() 
-    };
-    let mut owned_linked = Vec::new(); // must be stored
-    let es = ES::new().append(node, &mut owned_linked);
-    let tb_ref = S::new(tb); // must be stored
-    let problem_bind = S::new(Bind::new("proof".to_string())); // must be stored
-    let ty = Type(tb_ref.downgrade(), es, problem_bind.downgrade());
-    let meta = S::new(Meta::new(ty));
-    let new_state = AppState {
-        current: meta,
-        undo: Vec::new(),
-        redo: Vec::new(),
-        autofill: true,
-        constraints: false,
-        _owned_linked: owned_linked,
-        _owned_tb: tb_ref,
-        _owned_bind: problem_bind
-    };
+    to_lean_result(|| {
+        let ir_type = to_ir_type(typ);
+        let tb = ir_type.to_type(&ES::new());
+        let entry = &tb.codomain.borrow().gamma.linked.as_ref().unwrap().borrow().node.entry;
+        let node = Node { 
+            entry: Entry { params_id: entry.params_id, lets_id: entry.lets_id, subst: None, 
+                context: Some(Context(tb.types.downgrade(), tb.codomain.borrow().gamma.clone(), tb.codomain.borrow().bindings.clone()))}, 
+            bindings: tb.codomain.borrow().gamma.linked.as_ref().unwrap().borrow().node.bindings.clone() 
+        };
+        let mut owned_linked = Vec::new(); // must be stored
+        let es = ES::new().append(node, &mut owned_linked);
+        let tb_ref = S::new(tb); // must be stored
+        let problem_bind = S::new(Bind::new("proof".to_string())); // must be stored
+        let ty = Type(tb_ref.downgrade(), es, problem_bind.downgrade());
+        let meta = S::new(Meta::new(ty));
+        let new_state = AppState {
+            current: meta,
+            undo: Vec::new(),
+            redo: Vec::new(),
+            autofill: true,
+            constraints: false,
+            _owned_linked: owned_linked,
+            _owned_tb: tb_ref,
+            _owned_bind: problem_bind
+        };
 
-    match GLOBAL_STATE.get() {
-        None => {
-            thread::spawn(move || { 
-                Runtime::new().unwrap().block_on(async {
-                    start_server(new_state).await;
+        match GLOBAL_STATE.get() {
+            None => {
+                thread::spawn(move || { 
+                    Runtime::new().unwrap().block_on(async {
+                        start_server(new_state).await;
+                    });
                 });
-            });
+            }
+            Some(state) => {
+                *state.lock().unwrap() = new_state;
+            }
         }
-        Some(state) => {
-            *state.lock().unwrap() = new_state;
-        }
-    }
-    return lean_io_result_mk_ok(lean_box(0));
+        lean_box(0)
+    }, || {})
 }
 
 /// `getRefinement` in Lean.
 #[no_mangle]
 pub unsafe extern "C" fn get_refinement() -> *const LeanResult {
-    match GLOBAL_STATE.get() {
-        None => {
-            lean_io_result_mk_error(lean_mk_io_user_error(to_lean_string("No refine server running!")))
-        }
-        Some(state) => {
-            let current = state.lock().unwrap().current.downgrade();
-            let bindings = current.borrow().gamma.linked.as_ref().unwrap().borrow().node.bindings.clone();
-            lean_io_result_mk_ok(
+    to_lean_result(|| {
+        match GLOBAL_STATE.get() {
+            None => panic!("No refine server running!"),
+            Some(state) => {
+                let current = state.lock().unwrap().current.downgrade();
+                let bindings = current.borrow().gamma.linked.as_ref().unwrap().borrow().node.bindings.clone();
                 to_lean_term(
                     &IRTerm::from_lambda::<false>(
                         Term { base: current.clone(), 
@@ -599,9 +626,9 @@ pub unsafe extern "C" fn get_refinement() -> *const LeanResult {
                         false
                     )
                 ) as *const LeanObject
-            )
+            }
         }
-    }
+    }, || {})
 }
 
 #[no_mangle]
