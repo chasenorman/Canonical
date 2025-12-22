@@ -5,7 +5,7 @@ use crate::stats::*;
 use rayon::prelude::*;
 use std::sync::atomic::{Ordering, AtomicUsize};
 use std::sync::Arc;
-use hashbrown::HashMap;
+use rustc_hash::FxHashMap as HashMap;
 
 /// The number of Rayon jobs yet to be completed.
 pub static NUM_JOBS: AtomicUsize = AtomicUsize::new(0);
@@ -260,7 +260,7 @@ impl Meta {
     /// Return a clone of this metvariable and a map of metavariables between this and the new clone, with `stats_buffer` moved into `stats`.
     pub fn try_clone(meta: W<Meta>) -> Option<(S<Meta>, HashMap<W<Meta>, W<Meta>>)> {
         let new = S::new(Meta::new(meta.borrow().typ.as_ref().unwrap().clone()));
-        let mut map = HashMap::new();
+        let mut map = HashMap::default();
         if transfer(meta, new.downgrade(), &mut map) {
             return Some((new, map))
         }
