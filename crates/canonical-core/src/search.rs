@@ -31,11 +31,8 @@ impl DFSResult {
 /// Construct and test the `Assignment` from refining `meta` with `head`.
 pub fn test(head: DeBruijnIndex, curr: W<Linked>, mut meta: W<Meta>) -> Option<Option<(Assignment, Vec<Equation>, Vec<RedexConstraint>, AssignmentInfo)>> {
     let context = curr.borrow().node.entry.context.as_ref().unwrap();
-    let Some(tb) = &context.0.borrow()[head.1] else {
-        // Variable does not have a type, we are not permitted to apply it.
-        return None;
-    };
-    let args: Vec<S<Meta>> = tb.borrow().args_metas(meta.clone());
+    let tb = context.0.borrow().types.borrow()[head.1].as_ref().unwrap();
+    let args: Vec<S<Meta>> = tb.borrow().args_metas(Some(meta.clone()));
     let gamma = meta.borrow().gamma.clone();
     let mut _owned_linked = Vec::new();
     let var_type = curr.borrow().node.entry.context.as_ref().unwrap().get(head.1, Entry::subst(Subst(WVec::new(&args), gamma.clone())), &mut _owned_linked);
@@ -60,11 +57,11 @@ pub fn test(head: DeBruijnIndex, curr: W<Linked>, mut meta: W<Meta>) -> Option<O
         let arg = assignment.args[i].borrow_mut(); 
         let var_id = next_u64();
         let let_id = next_u64();
-        let typ = var_type.params().get(Index::Param(i), 
+        let typ = var_type.get(Index::Param(i), 
             Entry { params_id: var_id, lets_id: let_id, subst: None, context: None }, &mut assignment._owned_linked
         );
         arg.gamma = gamma.append(Node { 
-            entry: Entry { params_id: var_id, lets_id: let_id, subst: None, context: Some(typ.params()) }, 
+            entry: Entry { params_id: var_id, lets_id: let_id, subst: None, context: Some(typ.clone()) }, 
             bindings: arg.bindings.clone() 
         }, &mut assignment._owned_linked);
         arg.typ = Some(typ);

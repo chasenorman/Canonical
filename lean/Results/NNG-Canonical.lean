@@ -64,7 +64,7 @@ theorem two_mul (m : Nat) : 2 * m = m + m := by canonical [succ_mul, one_mul]
 
 theorem mul_add (a b c : Nat) : a * (b + c) = a * b + a * c := by canonical [add_assoc]
 
-theorem add_mul (a b c : Nat) : (a + b) * c = a * c + b * c := by canonical [mul_add, mul_comm]
+theorem add_mul (a b c : Nat) : (a + b) * c = a * c + b * c := by canonical -simp [mul_add, mul_comm]
 
 theorem mul_assoc (a b c : Nat) : a * b * c = a * (b * c) := by canonical [mul_add]
 
@@ -89,7 +89,7 @@ theorem succ_ne_zero (a : Nat) : a.succ ≠ 0 := by canonical [is_zero_zero, is_
 
 example (m n : Nat) (h : m ≠ n) : m.succ ≠ n.succ := by canonical [Nat.succ.inj]
 
-example : 20 + 20 = 40 := by canonical
+example : 20 + 20 = 40 := by canonical -monomorphize
 
 -- ADVANCED ADDITION WORLD
 
@@ -98,7 +98,7 @@ structure If (a b : Prop) : Prop where
 
 theorem add_right_cancel (a b n : Nat) : a + n = b + n → a = b := by canonical [If, Nat.succ.inj]
 
-theorem add_left_cancel (a b n : Nat) : n + a = n + b → a = b := by canonical [add_right_cancel, add_comm]
+theorem add_left_cancel (a b n : Nat) : n + a = n + b → a = b := by canonical -simp [add_right_cancel, add_comm]
 
 theorem add_left_eq_self (x y : Nat) : x + y = y → x = 0 := by canonical [zero_add, add_right_cancel]
 
@@ -157,13 +157,13 @@ theorem le_two (x : Nat) (hx : x ≤ 2) : x = 0 ∨ x = 1 ∨ x = 2 := sorry
 
 -- ADVANCED MULTIPLICATION WORLD
 
-theorem mul_le_mul_right (a b t : Nat) (h : a ≤ b) : a * t ≤ b * t := by canonical [Nat.le.dest, Nat.le.intro, add_mul]
+theorem mul_le_mul_right (a b t : Nat) (h : a ≤ b) : a * t ≤ b * t := by canonical -simp [Nat.le.dest, Nat.le.intro, add_mul]
 
 theorem mul_left_ne_zero (a b : Nat) (h : a * b ≠ 0) : b ≠ 0 := by canonical
 
-theorem eq_succ_of_ne_zero (a : Nat) (ha : a ≠ 0) : ∃ n, a = Nat.succ n := by canonical [If]
+theorem eq_succ_of_ne_zero (a : Nat) (ha : a ≠ 0) : ∃ n, a = Nat.succ n := by canonical 10 -simp -destruct [If]
 
-theorem one_le_of_ne_zero (a : Nat) (ha : a ≠ 0) : 1 ≤ a := by canonical [eq_succ_of_ne_zero, add_comm]
+theorem one_le_of_ne_zero (a : Nat) (ha : a ≠ 0) : 1 ≤ a := by canonical -simp [eq_succ_of_ne_zero, add_comm]
 
 theorem le_mul_right (a b : Nat) (h : a * b ≠ 0) : a ≤ (a * b) := sorry
 
@@ -171,7 +171,7 @@ theorem mul_right_eq_one (x y : Nat) (h : x * y = 1) : x = 1 := sorry
 
 theorem mul_ne_zero (a b : Nat) (ha : a ≠ 0) (hb : b ≠ 0) : a * b ≠ 0 := sorry
 
-theorem mul_eq_zero (a b : Nat) (h : a * b = 0) : a = 0 ∨ b = 0 := by canonical [mul_ne_zero, Classical.byContradiction]
+theorem mul_eq_zero (a b : Nat) (h : a * b = 0) : a = 0 ∨ b = 0 := by canonical -simp [mul_ne_zero, Classical.byContradiction]
 
 theorem mul_left_cancel (a b c : Nat) (ha : a ≠ 0) (h : a * b = a * c) : b = c := sorry
 

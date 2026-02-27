@@ -18,5 +18,5 @@ def add : MyNat → MyNat → MyNat
     MyNat.rec (motive := fun t ↦ add (MyNat.succ a) t = MyNat.succ (add a t))
       (by simp only [zero_add, add.eq_1]) (fun c c_ih ↦ by simp only [MyNat.succ.injEq, add.eq_2] <;> exact c_ih) b
 
--- example (a b : MyNat) : add a b = add b a := by
---   canonical +refine
+example (a b : MyNat) : add a b = add b a := by
+  canonical +refine

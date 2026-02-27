@@ -1,24 +1,45 @@
 import Canonical
 import Mathlib.Data.Real.Basic
-import Mathlib.Data.ZMod.Basic
 
-
-example (p : Nat × Nat × Nat) : Unit := by
+-- You can use `destruct` to skolemize existentials:
+example (p : ∃ x : Nat, x = x + 1) : False := by
   destruct
 
-example (p : Bool → Nat × (Bool → Nat)) : Unit := by
-  -- canonical +debug
+-- `destruct` can unpack nested structures:
+variable (A B C : Prop)
+example (p : (A ↔ B) ∧ C) : False := by
   destruct
 
-example (p : A → B ∧ (C → B)) : Unit := by
-  -- canonical +debug
+/-
+destruct can even unpack structure types that are behind universal
+quantifiers, implications, and function types. Observe how each field
+has `A` as an antecedent, and only the `right` field has `B`:
+-/
+example (p : A → (B ∧ (B → C))) : False := by
   destruct
 
-example (p : ∃ n : Nat, n > 0) : Unit := by
+/-
+But wait, there's more. You can even unpack
+structures in the antecedents of premises:
+-/
+example (p : (Nat × Nat) → (Nat × Nat)) : Nat := by
   destruct
 
-example (p : ∃ x : Nat, ∀ y : Nat, ∃ z : Nat, x * y = z) : Unit := by
+-- If the goal is a structure type, multiple goals can be created:
+example : ∃ n : Nat, n = n := by
   destruct
+
+-- There is a default list of structures that unfold, but you can specify your own:
+example (map : Std.HashMap String Nat) : Nat := by
+  destruct [Std.HashMap, Std.DHashMap, Std.DHashMap.Raw]
+
+/-
+Unit is treated like a structure, and is eliminated. Also notice the
+treatment of dependence on variables that were previously structure types:
+-/
+example (p : (Unit × Unit ×' ∃ x : (Nat × Nat), x.1 = x.2) → (A → B)) : B := by
+  destruct
+
 
 def continuous_function_at (f : ℝ → ℝ) (x₀ : ℝ) :=
 ∀ ε > 0, ∃ δ > 0, ∀ x, |x - x₀| ≤ δ → |f x - f x₀| ≤ ε
@@ -29,16 +50,4 @@ def sequence_tendsto (u : ℕ → ℝ) (l : ℝ) :=
 example (f : ℝ → ℝ) (u : ℕ → ℝ) (x₀ : ℝ)
     (hf : continuous_function_at f x₀) (hu : sequence_tendsto u x₀) :
     sequence_tendsto (f ∘ u) (f x₀) := by
-  by_contra h
-  destruct
-  exact
-    h_0 (fun x x_1 ↦ hu_0 (hf_0 x x_1) (hf_1 x x_1)) fun x x_1 n a ↦
-      hf_2 x x_1 (u n) (hu_1 (hf_0 x x_1) (hf_1 x x_1) n a)
-  -- destruct
-  -- intros ε hε
-  -- canonical +debug
-  -- use hu_0 (hf_0 ε hε) (hf_1 ε hε)
-  -- exact fun n a ↦ hf_2 ε hε (u n) (hu_1 (hf_0 ε hε) (hf_1 ε hε) n a)
-
-example : ∃ n : Nat, n = n := by
-  destruct
+  canonical

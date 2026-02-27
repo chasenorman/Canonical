@@ -212,7 +212,7 @@ impl RedexConstraint {
 impl Equation {
     /// Break down the equation into equations that are stuck on metavariables, added to `equations`.
     /// Returns false if the equation is violated.
-    fn reduce(&self, equations: &mut Vec<Equation>, changes: &mut Vec<W<Meta>>,
+    pub fn reduce(&self, equations: &mut Vec<Equation>, changes: &mut Vec<W<Meta>>,
               owned_linked: &mut Vec<S<Linked>>) -> bool {
         if owned_linked.len() > 1000 { return false }
         // Reduce both sides of the equation.
@@ -256,6 +256,7 @@ impl Equation {
 /// A substitution with a list of terms, all with the same explicit substitution.
 /// Note that the explicit substitution does not contain the local variables unique to each
 /// element of the vector.
+#[derive(Clone)]
 pub struct Subst(pub WVec<S<Meta>>, pub ES);
 
 impl Subst {
@@ -287,10 +288,10 @@ impl<T> std::ops::Index<Index> for Indexed<T> {
 impl<T> Indexed<T> {
     /// We iterate over params first, as free variables are generally more important than consts.
     /// We iterate over params and lets in reverse order to prioritize dependently typed variables.
-    pub fn iter(indexed: W<Indexed<T>>) -> Box<dyn Iterator<Item = Index>> {
-        let params_iter = (0..indexed.borrow().params.len()).rev().map(Param);
-        let lets_iter = (0..indexed.borrow().lets.len()).rev().map(Let);
-        Box::new(params_iter.chain(lets_iter))
+    pub fn iter(indexed: &Indexed<T>) -> impl Iterator<Item = Index> + '_ {
+        let params_iter = (0..indexed.params.len()).rev().map(Param);
+        let lets_iter = (0..indexed.lets.len()).rev().map(Let);
+        params_iter.chain(lets_iter)
     }
 }
 
@@ -334,11 +335,12 @@ impl Bind {
 
 /// An explicit substitution entry, consisting of identifiers for the params and lets
 /// and optionally a substitution or typing context. 
+#[derive(Clone)]
 pub struct Entry {
     pub params_id: u64,
     pub lets_id: u64,
     pub subst: Option<Subst>,
-    pub context: Option<Context>
+    pub context: Option<Type>
 }
 
 impl Entry {
@@ -429,12 +431,10 @@ impl ES {
     pub fn iter(&self) -> impl Iterator<Item = (DeBruijnIndex, W<Linked>)> {
         iter::successors(self.linked.clone(), |node| 
             node.borrow().tail.clone() // Iterate over the linked list.
-        ).enumerate().flat_map(|(db, node)| 
-            // Iterate over `Index` at this `DeBruijn`.
-            Indexed::iter(node.borrow().node.bindings.clone()).map(move |item| 
-                (DeBruijnIndex(DeBruijn(db as u32), item), node.clone())
-            )
-        )
+        ).enumerate().flat_map(move |(db, node)| {
+            let indices: Vec<Index> = Indexed::iter(node.borrow().node.bindings.borrow()).collect();
+            indices.into_iter().map(move |item| (DeBruijnIndex(DeBruijn(db as u32), item), node.clone()))
+        })
     }
 
     /// Finds the `DeBruijnIndex` and `Bind` with a certain `name` in this `ES`.
@@ -576,16 +576,20 @@ impl <'a> WHNF {
     }
 }
 
+pub enum Polarity { 
+    Premise, Goal
+}
+
 /// A `DeBruijnIndex`-ed type, with a `codomain` (return type)
 /// and parameter/let `types` 
 pub struct TypeBase {
     pub codomain: S<Meta>,
-    pub types: S<Indexed<Option<S<TypeBase>>>>
+    pub types: S<Indexed<Option<S<TypeBase>>>>,
 }
 
 impl TypeBase {
     /// Create new metavariables to fill the parameters of this TypeBase.
-    pub fn args_metas(&self, parent: W<Meta>) -> Vec<S<Meta>> {
+    pub fn args_metas(&self, parent: Option<W<Meta>>) -> Vec<S<Meta>> {
         let arity = self.types.borrow().params.len();
         let mut args = Vec::with_capacity(arity);
         for i in 0..arity {
@@ -602,27 +606,10 @@ impl TypeBase {
                 stats_buffer: SearchInfo::new(),
                 has_rigid_equation: false,
                 branching: 1.0,
-                parent: Some(parent.clone())
+                parent: parent.clone()
             }))
         }
         args
-    }
-}
-
-/// A context with a list of types, all with the same explicit substitution.
-/// Note that the explicit substitution does not contain the local variables unique to each element.
-/// The `Bind`s correspond to the variables bound in this `Context`. 
-pub struct Context(pub W<Indexed<Option<S<TypeBase>>>>, pub ES, pub W<Indexed<S<Bind>>>);
-
-impl Context {
-    /// Get the `i`th parameter type, specialized to `entry`.
-    pub fn get(&self, i: Index, entry: Entry, owned_linked: &mut Vec<S<Linked>>) -> Type {
-        let base = self.0.borrow()[i].as_ref().unwrap();
-        Type(
-            base.downgrade(), 
-            self.1.append(Node {entry, bindings: base.borrow().codomain.borrow().bindings.clone() }, owned_linked),
-            self.2.borrow()[i].downgrade()
-        )
     }
 }
 
@@ -638,10 +625,14 @@ impl Type {
         Term { base: self.0.borrow().codomain.downgrade(), es: self.1.clone() }
     }
 
-    /// Get the parameter types.
-    pub fn params(&self) -> Context {
-        let bindings = self.0.borrow().codomain.borrow().bindings.clone();
-        Context(self.0.borrow().types.downgrade(), self.1.clone(), bindings)
+    /// Get the `i`th parameter type, specialized to `entry`.
+    pub fn get(&self, i: Index, entry: Entry, owned_linked: &mut Vec<S<Linked>>) -> Type {
+        let base = self.0.borrow().types.borrow()[i].as_ref().unwrap();
+        Type(
+            base.downgrade(), 
+            self.1.append(Node {entry, bindings: base.borrow().codomain.borrow().bindings.clone() }, owned_linked),
+            self.0.borrow().codomain.borrow().bindings.borrow()[i].downgrade()
+        )
     }
 }
 
