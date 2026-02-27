@@ -3,7 +3,7 @@ use crate::memory::*;
 use crate::search::*;
 use std::sync::{Arc, atomic::{AtomicU32, Ordering}};
 use arc_swap::ArcSwap;
-use hashbrown::HashMap;
+use rustc_hash::FxHashMap as HashMap;
 use once_cell::sync::Lazy;
 use crate::prover::NUM_JOBS;
 use thread_local_collect::tlm::probed::{Control, Holder};
@@ -13,14 +13,14 @@ use std::thread::ThreadId;
 pub static STEP_COUNT: AtomicU32 = AtomicU32::new(0);
 
 /// Global map from metavariable bucket to `MetaStats`. 
-pub static META_MAP: Lazy<ArcSwap<HashMap<usize, MetaStats>>> = Lazy::new(|| ArcSwap::from_pointee(HashMap::new()));
+pub static META_MAP: Lazy<ArcSwap<HashMap<usize, MetaStats>>> = Lazy::new(|| ArcSwap::from_pointee(HashMap::default()));
 pub static META_CONTROL: Lazy<Control<HashMap<usize, MetaStats>, HashMap<usize, MetaStats>>> = 
-    Lazy::new(|| Control::new(&LOCAL_META_MAP, HashMap::new(), HashMap::new, meta_op));
+    Lazy::new(|| Control::new(&LOCAL_META_MAP, HashMap::default(), HashMap::default, meta_op));
 
 /// Global map from assignment bucket to `AssignmentStats`
-pub static ASSIGNMENT_MAP: Lazy<ArcSwap<HashMap<usize, AssignmentStats>>> = Lazy::new(|| ArcSwap::from_pointee(HashMap::new()));
+pub static ASSIGNMENT_MAP: Lazy<ArcSwap<HashMap<usize, AssignmentStats>>> = Lazy::new(|| ArcSwap::from_pointee(HashMap::default()));
 pub static ASSIGNMENT_CONTROL: Lazy<Control<HashMap<usize, AssignmentStats>, HashMap<usize, AssignmentStats>>> = 
-    Lazy::new(|| Control::new(&LOCAL_ASSIGNMENT_MAP, HashMap::new(), HashMap::new, assignment_op));
+    Lazy::new(|| Control::new(&LOCAL_ASSIGNMENT_MAP, HashMap::default(), HashMap::default, assignment_op));
 
 
 thread_local! {
@@ -231,10 +231,10 @@ pub fn reset() {
     // If we are not careful to only keep one instance of Canonical running, the following line may hang.
     RUN.store(true, Ordering::Release);
     META_CONTROL.take_tls();
-    META_CONTROL.take_acc(HashMap::new());
-    META_MAP.store(Arc::new(HashMap::new()));
+    META_CONTROL.take_acc(HashMap::default());
+    META_MAP.store(Arc::new(HashMap::default()));
     ASSIGNMENT_CONTROL.take_tls();
-    ASSIGNMENT_CONTROL.take_acc(HashMap::new());
-    ASSIGNMENT_MAP.store(Arc::new(HashMap::new()));
+    ASSIGNMENT_CONTROL.take_acc(HashMap::default());
+    ASSIGNMENT_MAP.store(Arc::new(HashMap::default()));
     NUM_JOBS.store(0, Ordering::Release);
 }

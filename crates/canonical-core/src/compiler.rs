@@ -2,11 +2,11 @@ use crate::core::*;
 use crate::memory::*;
 use std::sync::Arc;
 use arc_swap::ArcSwap;
-use hashbrown::HashMap;
+use rustc_hash::FxHashMap as HashMap;
 use once_cell::sync::Lazy;
 use std::iter;
 
-pub static COMPILATION: Lazy<ArcSwap<HashMap<(usize, usize), Vec<Index>>>> = Lazy::new(|| ArcSwap::from_pointee(HashMap::new()));
+pub static COMPILATION: Lazy<ArcSwap<HashMap<(usize, usize), Vec<Index>>>> = Lazy::new(|| ArcSwap::from_pointee(HashMap::default()));
 
 #[derive(Clone, Copy)]
 enum Polarity { Goal, Premise }
@@ -58,7 +58,7 @@ pub fn compile(typ: Type) {
     let mut owned_metas = Vec::new();
     get_compilation_info(typ, &mut goals, Polarity::Goal, &mut owned_linked, &mut owned_metas);
     // println!("{:?}", goals.iter().map(|(typ, children)| typ.2.name).collect::<Vec<_>>());
-    let mut compilation = HashMap::new();
+    let mut compilation = HashMap::default();
     // let mut count: u32 = 0;
     for goal in goals.iter() {
         for goal2 in goals.iter() {
