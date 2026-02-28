@@ -6,7 +6,7 @@ use canonical_core::prover::*;
 use canonical_core::search::*;
 use canonical_core::memory::S;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Mutex, Arc, Condvar};
@@ -410,7 +410,7 @@ extern "C" {
     fn lean_mk_string(s: *const i8) -> *const LeanStringObject;
     fn lean_alloc_object(sz: usize) -> *const LeanObject;
     // fn lean_alloc_small(sz: usize, slot_idx: usize) -> *const LeanObject;
-    fn lean_io_check_canceled_core() -> bool;
+    // fn lean_io_check_canceled_core() -> bool;
     fn mi_malloc_small(sz: usize) -> *mut c_void;
     fn lean_internal_panic_out_of_memory();
     fn lean_mk_io_user_error(str: *const LeanStringObject) -> *const LeanObject;
@@ -509,6 +509,7 @@ where
         }
     }
 }
+
 /// `canonical` in Lean.
 #[no_mangle]
 pub unsafe extern "C" fn canonical(typ: *const LeanType, timeout: u64, count: usize) -> *const LeanResult {
@@ -523,19 +524,7 @@ pub unsafe extern "C" fn canonical(typ: *const LeanType, timeout: u64, count: us
             main(ir_type, tx, count, arc_clone)
         });
 
-        // Regularly check whether the task has been cancelled from Lean, until the timout is reached. 
-        let start = Instant::now();
-        while start.elapsed() < Duration::from_secs(timeout) {
-            match rx.recv_timeout(Duration::from_millis(10)) {
-                Err(mpsc::RecvTimeoutError::Timeout) => {
-                    if lean_io_check_canceled_core() || !RUN.load(Ordering::Relaxed) {
-                        break;
-                    }
-                }
-                _ => break,
-            }
-        }
-
+        let _ = rx.recv_timeout(Duration::from_secs(timeout));
         RUN.store(false, Ordering::Relaxed);
         match worker.join() {
             Ok((result, last_level_steps)) => {
@@ -555,6 +544,12 @@ pub unsafe extern "C" fn canonical(typ: *const LeanType, timeout: u64, count: us
     })
 }
 
+/// `cancel` in Lean.
+#[no_mangle]
+pub unsafe extern "C" fn cancel() -> *const LeanResult {
+    RUN.store(false, Ordering::Relaxed);
+    lean_io_result_mk_ok(lean_box(0))
+}
 
 /// `refine` in Lean.
 #[no_mangle]
