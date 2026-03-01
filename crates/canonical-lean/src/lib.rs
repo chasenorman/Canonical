@@ -491,7 +491,7 @@ impl Lock {
 }
 
 /// This lock ensures that we only have one instance running at a time.
-static INSTANCE: Lazy<Lock> = Lazy::new(|| Lock::new());
+static INSTANCE: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
 unsafe fn to_lean_result<F, G>(f: F, g: G) -> *const LeanResult
 where
@@ -514,7 +514,7 @@ where
 #[no_mangle]
 pub unsafe extern "C" fn canonical(typ: *const LeanType, timeout: u64, count: usize) -> *const LeanResult {
     to_lean_result(|| {
-        INSTANCE.lock();
+        let _instance = INSTANCE.lock().unwrap();
         let ir_type = to_ir_type(typ);
         let (tx, rx) = mpsc::channel();
 
@@ -531,7 +531,6 @@ pub unsafe extern "C" fn canonical(typ: *const LeanType, timeout: u64, count: us
                 let v = arc.lock().unwrap();
                 let terms = to_lean_array(&v.iter().map(|x| to_lean_term(x) as *const LeanObject).collect());
 
-                INSTANCE.unlock();
                 to_canonical_result(terms, result, last_level_steps) as *const LeanObject
             }
             Err(e) => {
@@ -540,14 +539,16 @@ pub unsafe extern "C" fn canonical(typ: *const LeanType, timeout: u64, count: us
         }
     }, || {
         RUN.store(false, Ordering::Relaxed);
-        INSTANCE.unlock();
     })
 }
 
 /// `cancel` in Lean.
 #[no_mangle]
 pub unsafe extern "C" fn cancel() -> *const LeanResult {
-    RUN.store(false, Ordering::Relaxed);
+    while INSTANCE.try_lock().is_err() {
+        RUN.store(false, std::sync::atomic::Ordering::Relaxed);
+        std::thread::yield_now();
+    }
     lean_io_result_mk_ok(lean_box(0))
 }
 
