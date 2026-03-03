@@ -10,6 +10,7 @@ use std::time::Duration;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Mutex, Arc, Condvar};
+use std::sync::TryLockError;
 use once_cell::sync::Lazy;
 use canonical_compat::refine::*;
 use tokio::runtime::Runtime;
@@ -534,6 +535,7 @@ pub unsafe extern "C" fn canonical(typ: *const LeanType, timeout: u64, count: us
                 to_canonical_result(terms, result, last_level_steps) as *const LeanObject
             }
             Err(e) => {
+                drop(_instance);
                 panic!("{}", e.downcast_ref::<&str>().unwrap_or(&"internal panic"));
             }
         }
@@ -545,7 +547,7 @@ pub unsafe extern "C" fn canonical(typ: *const LeanType, timeout: u64, count: us
 /// `cancel` in Lean.
 #[no_mangle]
 pub unsafe extern "C" fn cancel() -> *const LeanResult {
-    while INSTANCE.try_lock().is_err() {
+    while matches!(INSTANCE.try_lock(), Err(TryLockError::WouldBlock)) {
         RUN.store(false, std::sync::atomic::Ordering::Relaxed);
         std::thread::yield_now();
     }
