@@ -23,18 +23,16 @@ impl Polarity {
 fn get_type(term: Term, owned_linked: &mut Vec<S<Linked>>) -> Option<Term> {
     let assn = term.base.borrow().assignment.as_ref().unwrap();
     let sub_es = term.es.sub_es(assn.head.0);
-    let context = sub_es.linked.as_ref().unwrap().borrow().node.entry.context.as_ref().unwrap();
-    if let Some(tb) = context.0.borrow().types.borrow()[assn.head.1].as_ref() {
-        Some(Term {
-            base: tb.borrow().codomain.downgrade(),
-            es: sub_es.append(Node { 
-              entry: Entry::subst(Subst(WVec::new(&assn.args), term.es.clone())), 
-              bindings: tb.borrow().codomain.borrow().bindings.clone()
-            }, owned_linked)
-        })
-    } else {
-        None
-    }
+    let Some(context) = sub_es.linked.as_ref().unwrap().borrow().node.entry.context.as_ref() else { return None };
+    let Some(tb) = context.0.borrow().types.borrow()[assn.head.1].as_ref() else { return None };
+    
+    return Some(Term {
+        base: tb.borrow().codomain.downgrade(),
+        es: sub_es.append(Node { 
+            entry: Entry::subst(Subst(WVec::new(&assn.args), term.es.clone())), 
+            bindings: tb.borrow().codomain.borrow().bindings.clone()
+        }, owned_linked)
+    })
 }
 
 pub fn unify(goal: Term, premise: Term, depth: u32) -> bool {
