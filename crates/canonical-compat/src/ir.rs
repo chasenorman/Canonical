@@ -17,6 +17,7 @@ pub struct IRVar {
 pub struct IRRule {
     pub lhs: IRSpine,
     pub rhs: IRSpine,
+    #[serde(skip)]
     pub attribution: Vec<String>,
     pub is_redex: bool
 }
@@ -32,7 +33,7 @@ pub struct IRLet {
 pub struct IRSpine {
     pub head: String,
     pub args: Vec<IRTerm>,
-
+    #[serde(skip)]
     pub premise_rules: Vec<String>
 }
 
@@ -43,7 +44,7 @@ pub struct IRTerm {
     pub params: Vec<IRVar>,
     pub lets: Vec<IRLet>,
     pub spine: IRSpine,
-
+    #[serde(skip)]
     pub goal_rules: Vec<String>
 }
 

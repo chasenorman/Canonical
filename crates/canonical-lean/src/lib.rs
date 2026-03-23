@@ -1,6 +1,7 @@
 // https://github.com/leanprover/lean4/blob/master/src/include/lean/lean.h
 use std::ffi::{CStr, CString, c_char, c_void};
 use canonical_compat::ir::*;
+use canonical_compat::ai;
 use canonical_core::core::*;
 use canonical_core::prover::*;
 use canonical_core::search::*;
@@ -15,6 +16,7 @@ use once_cell::sync::Lazy;
 use canonical_compat::refine::*;
 use tokio::runtime::Runtime;
 use std::panic;
+use std::sync::MutexGuard;
 // use std::fs::OpenOptions;
 // use std::io::Write;
 
@@ -441,14 +443,8 @@ pub extern "C" fn rule_to_string(rule: *const LeanRule) -> *const LeanStringObje
     to_lean_string(format!("{:?}", &to_ir_rule(rule)).as_str())
 }
 
-/// Starts a `Prover` on `ir_type`, appending solutions to `terms` and sending on `sender` once complete.
-fn main(ir_type: IRType, sender: Sender<()>, count: usize, terms: Arc<Mutex<Vec<IRTerm>>>) -> (DFSResult, u32) {
-    let tb = S::new(ir_type.to_type(&ES::new()));
-    let problem_bind = S::new(Bind::new("proof".to_string()));
-    let mut owned_linked = Vec::new();
-    
-    let prover = Prover::new(tb.downgrade(), problem_bind.downgrade(), &mut owned_linked);
-
+/// Starts `prover`, appending solutions to `terms` and sending on `sender` once complete.
+fn main(prover: Prover, sender: Sender<()>, count: usize, terms: Arc<Mutex<Vec<IRTerm>>>) -> (DFSResult, u32) {
     prover.prove(&|term: Term| {
         let mut v = terms.lock().unwrap();
         let bindings = term.base.borrow().gamma.linked.as_ref().unwrap().borrow().node.bindings.clone();
@@ -494,15 +490,19 @@ impl Lock {
 /// This lock ensures that we only have one instance running at a time.
 static INSTANCE: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
-unsafe fn to_lean_result<F, G>(f: F, g: G) -> *const LeanResult
+unsafe fn to_lean_result<F, G>(instance: Option<MutexGuard<'_, ()>>, f: F, g: G) -> *const LeanResult
 where
     F: FnOnce() -> *const LeanObject + panic::UnwindSafe,
     G: FnOnce() -> ()
 {
     std::panic::set_hook(Box::new(|_| {}));
     match panic::catch_unwind(f) {
-        Ok(ptr) => lean_io_result_mk_ok(ptr),
+        Ok(ptr) => {
+            drop(instance);
+            lean_io_result_mk_ok(ptr)
+        }
         Err(e) => {
+            drop(instance);
             g();
             let default = "internal panic".to_string();
             let msg = e.downcast_ref::<String>().unwrap_or(&default);
@@ -514,15 +514,20 @@ where
 /// `canonical` in Lean.
 #[no_mangle]
 pub unsafe extern "C" fn canonical(typ: *const LeanType, timeout: u64, count: usize) -> *const LeanResult {
-    to_lean_result(|| {
-        let _instance = INSTANCE.lock().unwrap();
+    let instance = INSTANCE.lock().unwrap();
+    to_lean_result(Some(instance), || {
         let ir_type = to_ir_type(typ);
         let (tx, rx) = mpsc::channel();
 
         let arc : Arc<Mutex<Vec<IRTerm>>> = Arc::new(Mutex::new(Vec::new()));
         let arc_clone = arc.clone();
+        let tb = S::new(ir_type.to_type(&ES::new()));
+        let problem_bind = S::new(Bind::new("proof".to_string()));
+        let mut owned_linked = Vec::new();
+        let prover = Prover::new(tb.downgrade(), problem_bind.downgrade(), &mut owned_linked);
+
         let worker = thread::spawn(move || {
-            main(ir_type, tx, count, arc_clone)
+            main(prover, tx, count, arc_clone)
         });
 
         let _ = rx.recv_timeout(Duration::from_secs(timeout));
@@ -535,7 +540,6 @@ pub unsafe extern "C" fn canonical(typ: *const LeanType, timeout: u64, count: us
                 to_canonical_result(terms, result, last_level_steps) as *const LeanObject
             }
             Err(e) => {
-                drop(_instance);
                 panic!("{}", e.downcast_ref::<&str>().unwrap_or(&"internal panic"));
             }
         }
@@ -557,7 +561,7 @@ pub unsafe extern "C" fn cancel() -> *const LeanResult {
 /// `refine` in Lean.
 #[no_mangle]
 pub unsafe extern "C" fn refine(typ: *const LeanType) -> *const LeanResult {
-    to_lean_result(|| {
+    to_lean_result(None, || {
         let ir_type = to_ir_type(typ);
         let tb_ref = S::new(ir_type.to_type(&ES::new()));
         let problem_bind = S::new(Bind::new("proof".to_string())); // must be stored
@@ -594,7 +598,7 @@ pub unsafe extern "C" fn refine(typ: *const LeanType) -> *const LeanResult {
 /// `getRefinement` in Lean.
 #[no_mangle]
 pub unsafe extern "C" fn get_refinement() -> *const LeanResult {
-    to_lean_result(|| {
+    to_lean_result(None, || {
         match GLOBAL_STATE.get() {
             None => panic!("No refine server running!"),
             Some(state) => {
@@ -614,9 +618,13 @@ pub unsafe extern "C" fn get_refinement() -> *const LeanResult {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn save_to_file(typ: *const LeanType, file: *const LeanStringObject) -> *const LeanResult {
+pub unsafe extern "C" fn save_example(typ: *const LeanType, term: *const LeanTerm, file: *const LeanStringObject) -> *const LeanResult {
     let ir_type = to_ir_type(typ);
-    ir_type.save(to_string(file));
+    let ir_term = to_ir_term(term);
+    ai::Example {
+        problem: ir_type,
+        solution: ir_term.spine
+    }.save(to_string(file));
     lean_io_result_mk_ok(lean_box(0))
 }
 

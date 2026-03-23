@@ -5,6 +5,7 @@ use canonical_core::memory::S;
 pub mod ir;
 pub mod refine;
 pub mod reduction;
+pub mod ai;
 use ir::*;
 use std::time::SystemTime;
 
@@ -131,12 +132,12 @@ macro_rules! P {
 /// You can create a json file using the `+debug` tactic option.
 #[tokio::main]
 pub async fn main() {
-    let tb = S::new(IRType::load("lean/debug.json".to_string()).to_type(&ES::new()));
+    let irt = IRType::load("lean/debug.json".to_string());
+    let tb = S::new(irt.to_type(&ES::new()));
     let problem_bind = S::new(Bind::new("proof".to_string()));
     let mut owned_linked = Vec::new();
     
     let prover = Prover::new(tb.downgrade(), problem_bind.downgrade(), &mut owned_linked);
-
     // let state = AppState {
     //     current: prover.meta,
     //     undo: Vec::new(),
