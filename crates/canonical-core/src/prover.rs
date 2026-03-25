@@ -52,9 +52,6 @@ impl Prover {
         // Iterative deepening. 
         while RUN.load(Ordering::Relaxed) {
             let max_size = ((depth as f32).ln_1p()*4.0) as u32;
-            if max_size > 200 {
-                panic!("Stack overflow.");
-            }
             if verbose { println!("entropy (log): {}", (depth as f32).ln_1p()); }
             let result = self.parallel_dfs(depth, max_size, callback);
             if verbose { println!("ratio: {}", result.steps as f32 / previous_steps as f32); }
@@ -79,6 +76,7 @@ impl Prover {
 
     /// Parallelized DFS, up to an entropy of `max_entropy` and term size of `max_size`. Solutions are passed to the `callback`.
     pub fn parallel_dfs<F>(&self, max_entropy: f64, max_size: u32, callback: &F) -> DFSResult where F: Fn(Term) + Send + Sync {
+        guard_overflow();
         if !RUN.load(Ordering::Relaxed) {
             // The task has been cancelled. 
             return DFSResult { unknown_count: 0, steps: 0, entropy: 1.0, solution_count: 0, attempts: 0, branching: 0 };

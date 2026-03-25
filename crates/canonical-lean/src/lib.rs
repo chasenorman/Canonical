@@ -628,6 +628,13 @@ pub unsafe extern "C" fn save_example(typ: *const LeanType, term: *const LeanTer
     lean_io_result_mk_ok(lean_box(0))
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn save_typ(typ: *const LeanType, file: *const LeanStringObject) -> *const LeanResult {
+    let ir_type = to_ir_type(typ);
+    ir_type.save(to_string(file));
+    lean_io_result_mk_ok(lean_box(0))
+}
+
 // fn print_force(s: String) -> Result<(), std::io::Error> {
 //     let mut file = OpenOptions::new()
 //         .append(true)
