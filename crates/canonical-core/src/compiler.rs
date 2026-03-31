@@ -7,6 +7,7 @@ use once_cell::sync::Lazy;
 use std::iter;
 
 pub static COMPILATION: Lazy<ArcSwap<HashMap<(usize, usize), Vec<Index>>>> = Lazy::new(|| ArcSwap::from_pointee(HashMap::default()));
+pub static COMPILATION_STRING: Lazy<ArcSwap<HashMap<String, Vec<String>>>> = Lazy::new(|| ArcSwap::from_pointee(HashMap::default()));
 
 #[derive(Clone, Copy)]
 enum Polarity { Goal, Premise }
@@ -57,22 +58,28 @@ pub fn compile(typ: Type) {
     get_compilation_info(typ, &mut goals, Polarity::Goal, &mut owned_linked, &mut owned_metas);
     // println!("{:?}", goals.iter().map(|(typ, children)| typ.2.name).collect::<Vec<_>>());
     let mut compilation = HashMap::default();
+    let mut compilation_string = HashMap::default();
     // let mut count: u32 = 0;
     for goal in goals.iter() {
+        let mut unifications_string = Vec::new();    
         for goal2 in goals.iter() {
             let mut unifications = Vec::new();
             for premise in goal2.1.iter() {
                 let success = unify(goal.0.codomain(), premise.0.codomain(), 0);
                 if success {
                     unifications.push(premise.1.clone());
+                    unifications_string.push(premise.0.2.borrow().name.clone());
                     // count += 1;
                 }
                 // println!("{} <- {}: {}", goal.0.2.borrow().name, premise.0.2.borrow().name, success);
             }
             compilation.insert((goal.0.0.usize(), goal2.0.0.usize()), unifications);
         }
+        compilation_string.insert(goal.0.2.borrow().name.clone(), unifications_string);
     }
+    // println!("{:?}", compilation_string);
     COMPILATION.store(Arc::new(compilation));
+    COMPILATION_STRING.store(Arc::new(compilation_string));
     // println!("Total unifications: {}", count);
     // println!("Compilation: {:?}", COMPILATION.load());
     // println!("Length: {}, {}", COMPILATION.load().len(), goals.len());

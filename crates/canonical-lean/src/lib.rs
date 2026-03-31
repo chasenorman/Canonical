@@ -1,11 +1,11 @@
 // https://github.com/leanprover/lean4/blob/master/src/include/lean/lean.h
 use std::ffi::{CStr, CString, c_char, c_void};
 use canonical_compat::ir::*;
-use canonical_compat::ai;
+use canonical_compat::ai::Example;
 use canonical_core::core::*;
 use canonical_core::prover::*;
 use canonical_core::search::*;
-use canonical_core::memory::S;
+use canonical_core::memory::{S, W};
 use std::thread;
 use std::time::Duration;
 use std::sync::atomic::Ordering;
@@ -17,6 +17,8 @@ use canonical_compat::refine::*;
 use tokio::runtime::Runtime;
 use std::panic;
 use std::sync::MutexGuard;
+use std::collections::HashMap;
+use canonical_core::compiler::*;
 // use std::fs::OpenOptions;
 // use std::io::Write;
 
@@ -443,14 +445,44 @@ pub extern "C" fn rule_to_string(rule: *const LeanRule) -> *const LeanStringObje
     to_lean_string(format!("{:?}", &to_ir_rule(rule)).as_str())
 }
 
+fn populate_unifications(unifications: &mut HashMap<String, HashMap<String, u32>>, base: W<Meta>) {
+    let goal_string = &base.borrow().typ.as_ref().expect("base has no type!").2.borrow().name;
+    let Some(goal) = unifications.get_mut(goal_string) else {
+        panic!("goal {} has no unifications", goal_string.clone());
+    };
+    let assignment = base.borrow().assignment.as_ref().expect("unassigned metavariable!");
+    let Some(premise) = goal.get(&assignment.bind.borrow().name) else {
+        panic!("goal {} has no premise {}", goal_string.clone(), assignment.bind.borrow().name);
+    };
+
+    goal.insert(assignment.bind.borrow().name.clone(), premise + 1);
+    for arg in assignment.args.iter() {
+        populate_unifications(unifications, arg.downgrade());
+    }
+}
+
 /// Starts `prover`, appending solutions to `terms` and sending on `sender` once complete.
-fn main(prover: Prover, sender: Sender<()>, count: usize, terms: Arc<Mutex<Vec<IRTerm>>>) -> (DFSResult, u32) {
+fn main(prover: Prover, sender: Sender<()>, count: usize, terms: Arc<Mutex<Vec<(IRTerm, HashMap<String, HashMap<String, u32>>)>>>) -> (DFSResult, u32) {
     prover.prove(&|term: Term| {
         let mut v = terms.lock().unwrap();
         let bindings = term.base.borrow().gamma.linked.as_ref().unwrap().borrow().node.bindings.clone();
+
+        let compilation_string = COMPILATION_STRING.load();
+        let mut unifications: HashMap<String, HashMap<String, u32>> = HashMap::new();
+        for (goal, premises) in compilation_string.iter() {
+            let mut goal_unification: HashMap<String, u32> = HashMap::new();
+            for premise in premises.iter() {
+                goal_unification.insert(premise.clone(), 0);
+            }
+            unifications.insert(goal.clone(), goal_unification);
+        }
+        populate_unifications(&mut unifications, term.base.clone());
+
+
         let ir_term = IRTerm::from_lambda::<false>(term, bindings, false);
-        if v.len() < count && v.iter().all(|x| x != &ir_term) {
-            v.push(ir_term);
+
+        if v.len() < count && v.iter().all(|x| x.0 != ir_term) {
+            v.push((ir_term, unifications));
         }
         if v.len() >= count {
             RUN.store(false, Ordering::Relaxed);
@@ -520,7 +552,7 @@ pub unsafe extern "C" fn canonical(typ: *const LeanType, name: *const LeanString
         let ir_type = to_ir_type(typ);
         let (tx, rx) = mpsc::channel();
 
-        let arc : Arc<Mutex<Vec<IRTerm>>> = Arc::new(Mutex::new(Vec::new()));
+        let arc : Arc<Mutex<_>> = Arc::new(Mutex::new(Vec::new()));
         let arc_clone = arc.clone();
         let tb = S::new(ir_type.to_type(&ES::new()));
         let problem_bind = S::new(Bind::new(to_string(name)));
@@ -536,7 +568,14 @@ pub unsafe extern "C" fn canonical(typ: *const LeanType, name: *const LeanString
         match worker.join() {
             Ok((result, last_level_steps)) => {
                 let v = arc.lock().unwrap();
-                let terms = to_lean_array(&v.iter().map(|x| to_lean_term(x) as *const LeanObject).collect());
+                if result.steps > 100000 && !v.is_empty() {
+                    Example {
+                        problem: ir_type,
+                        unifications: v[0].1.clone()
+                    }.save("Results/".to_string() + &to_string(name) + ".bin");
+                }
+
+                let terms = to_lean_array(&v.iter().map(|x| to_lean_term(&x.0) as *const LeanObject).collect());
 
                 to_canonical_result(terms, result, last_level_steps) as *const LeanObject
             }
