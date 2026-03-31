@@ -504,8 +504,9 @@ where
         Err(e) => {
             drop(instance);
             g();
-            let default = "internal panic".to_string();
-            let msg = e.downcast_ref::<String>().unwrap_or(&default);
+            let msg = if let Some(s) = e.downcast_ref::<String>() { s.as_str() } else 
+                            if let Some(s) = e.downcast_ref::<&'static str>() { *s } else 
+                            { "internal panic" };
             lean_io_result_mk_error(lean_mk_io_user_error(to_lean_string(msg)))
         }
     }
@@ -513,7 +514,7 @@ where
 
 /// `canonical` in Lean.
 #[no_mangle]
-pub unsafe extern "C" fn canonical(typ: *const LeanType, timeout: u64, count: usize) -> *const LeanResult {
+pub unsafe extern "C" fn canonical(typ: *const LeanType, name: *const LeanStringObject, timeout: u64, count: usize) -> *const LeanResult {
     let instance = INSTANCE.lock().unwrap();
     to_lean_result(Some(instance), || {
         let ir_type = to_ir_type(typ);
@@ -522,7 +523,7 @@ pub unsafe extern "C" fn canonical(typ: *const LeanType, timeout: u64, count: us
         let arc : Arc<Mutex<Vec<IRTerm>>> = Arc::new(Mutex::new(Vec::new()));
         let arc_clone = arc.clone();
         let tb = S::new(ir_type.to_type(&ES::new()));
-        let problem_bind = S::new(Bind::new("proof".to_string()));
+        let problem_bind = S::new(Bind::new(to_string(name)));
         let mut owned_linked = Vec::new();
         let prover = Prover::new(tb.downgrade(), problem_bind.downgrade(), &mut owned_linked);
 
@@ -540,7 +541,10 @@ pub unsafe extern "C" fn canonical(typ: *const LeanType, timeout: u64, count: us
                 to_canonical_result(terms, result, last_level_steps) as *const LeanObject
             }
             Err(e) => {
-                panic!("{}", e.downcast_ref::<&str>().unwrap_or(&"internal panic"));
+                let msg = if let Some(s) = e.downcast_ref::<String>() { s.as_str() } else 
+                                if let Some(s) = e.downcast_ref::<&'static str>() { *s } else 
+                                { "internal panic" };
+                panic!("{}", msg);
             }
         }
     }, || {
@@ -615,17 +619,6 @@ pub unsafe extern "C" fn get_refinement() -> *const LeanResult {
             }
         }
     }, || {})
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn save_example(typ: *const LeanType, term: *const LeanTerm, file: *const LeanStringObject) -> *const LeanResult {
-    let ir_type = to_ir_type(typ);
-    let ir_term = to_ir_term(term);
-    ai::Example {
-        problem: ir_type,
-        solution: ir_term.spine
-    }.save(to_string(file));
-    lean_io_result_mk_ok(lean_box(0))
 }
 
 #[no_mangle]

@@ -1,11 +1,12 @@
-use crate::ir::*;
-use serde::{Serialize, Deserialize};
+use std::collections::HashMap;
 use std::fs::File;
+use crate::ir::*;
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 pub struct Example {
     pub problem: IRType,
-    pub solution: IRSpine
+    pub unifications: HashMap<String, HashMap<String, u32>>
 }
 
 impl Example {
