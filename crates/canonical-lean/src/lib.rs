@@ -499,7 +499,7 @@ where
     F: FnOnce() -> *const LeanObject + panic::UnwindSafe,
     G: FnOnce() -> ()
 {
-    std::panic::set_hook(Box::new(|_| {}));
+    // std::panic::set_hook(Box::new(|_| {}));
     match panic::catch_unwind(f) {
         Ok(ptr) => {
             drop(instance);
