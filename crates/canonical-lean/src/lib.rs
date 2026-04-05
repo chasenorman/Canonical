@@ -594,6 +594,7 @@ pub unsafe extern "C" fn canonical(typ: *const LeanType, name: *const LeanString
 /// `cancel` in Lean.
 #[no_mangle]
 pub unsafe extern "C" fn cancel() -> *const LeanResult {
+    INSTANCE.clear_poison();
     while matches!(INSTANCE.try_lock(), Err(TryLockError::WouldBlock)) {
         RUN.store(false, std::sync::atomic::Ordering::Relaxed);
         std::thread::yield_now();
