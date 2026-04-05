@@ -10,7 +10,7 @@ use std::thread;
 use std::time::Duration;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, Sender};
-use std::sync::{Mutex, Arc, Condvar};
+use std::sync::{Mutex, Arc};
 use std::sync::TryLockError;
 use once_cell::sync::Lazy;
 use canonical_compat::refine::*;
@@ -491,34 +491,6 @@ fn main(prover: Prover, sender: Sender<()>, count: usize, terms: Arc<Mutex<Vec<(
     }, false)
 }
 
-pub struct Lock {
-    locked: Mutex<bool>,
-    cvar: Condvar,
-}
-
-impl Lock {
-    pub fn new() -> Self {
-        Self {
-            locked: Mutex::new(false),
-            cvar: Condvar::new(),
-        }
-    }
-
-    pub fn lock(&self) {
-        let mut guard = self.locked.lock().unwrap();
-        while *guard {
-            guard = self.cvar.wait(guard).unwrap();
-        }
-        *guard = true;
-    }
-
-    pub fn unlock(&self) {
-        let mut guard = self.locked.lock().unwrap();
-        *guard = false;
-        self.cvar.notify_one();
-    }
-}
-
 /// This lock ensures that we only have one instance running at a time.
 static INSTANCE: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
@@ -547,7 +519,7 @@ where
 /// `canonical` in Lean.
 #[no_mangle]
 pub unsafe extern "C" fn canonical(typ: *const LeanType, name: *const LeanStringObject, timeout: u64, count: usize) -> *const LeanResult {
-    let instance = INSTANCE.lock().unwrap();
+    let instance = INSTANCE.lock().unwrap_or_else(|e| e.into_inner());
     to_lean_result(Some(instance), || {
         let ir_type = to_ir_type(typ);
         let (tx, rx) = mpsc::channel();
@@ -594,12 +566,14 @@ pub unsafe extern "C" fn canonical(typ: *const LeanType, name: *const LeanString
 /// `cancel` in Lean.
 #[no_mangle]
 pub unsafe extern "C" fn cancel() -> *const LeanResult {
-    INSTANCE.clear_poison();
-    while matches!(INSTANCE.try_lock(), Err(TryLockError::WouldBlock)) {
-        RUN.store(false, std::sync::atomic::Ordering::Relaxed);
-        std::thread::yield_now();
-    }
-    lean_io_result_mk_ok(lean_box(0))
+    to_lean_result(None, || {
+        INSTANCE.clear_poison();
+        while matches!(INSTANCE.try_lock(), Err(TryLockError::WouldBlock)) {
+            RUN.store(false, std::sync::atomic::Ordering::Relaxed);
+            std::thread::yield_now();
+        }
+        lean_box(0)
+    }, || {})
 }
 
 /// `refine` in Lean.
