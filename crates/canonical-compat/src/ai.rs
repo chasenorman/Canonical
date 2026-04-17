@@ -21,6 +21,24 @@ impl Example {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct Inference {
+    pub problem: IRType,
+    pub unifications: HashMap<String, HashMap<String, f64>>
+}
+
+impl Inference {
+    pub fn save(self: &Inference, path: String) {
+        let mut file = File::create(path).unwrap();
+        rmp_serde::encode::write(&mut file, self).unwrap();
+    }
+
+    pub fn load(path: String) -> Inference {
+        let file = File::open(path).unwrap();
+        rmp_serde::decode::from_read(file).unwrap()
+    }
+}
+
 // struct Token {
 //     name: String
 // }

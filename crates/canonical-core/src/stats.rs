@@ -230,6 +230,7 @@ impl AssignmentStats {
 pub fn reset() {
     // If we are not careful to only keep one instance of Canonical running, the following line may hang.
     RUN.store(true, Ordering::Release);
+    STEP_COUNT.store(0, Ordering::Release);
     META_CONTROL.take_tls();
     META_CONTROL.take_acc(HashMap::default());
     META_MAP.store(Arc::new(HashMap::default()));

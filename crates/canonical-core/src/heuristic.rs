@@ -52,8 +52,8 @@ impl AssignmentInfo {
         5.0 * (1.0 - completion_share)
     }
 
-    /// Weight between the children of a DFS node.
-    pub fn weight(&self) -> f64 {
-        1.0
-    }
+    // /// Weight between the children of a DFS node.
+    // pub fn weight(&self) -> f64 {
+    //     self.meta.borrow().assignment.as_ref().unwrap().compilation_info.probability
+    // }
 }

@@ -7,6 +7,7 @@ use mimalloc::MiMalloc;
 use std::cell::RefCell;
 use std::ops::ControlFlow;
 use core::slice::Iter;
+use crate::compiler::CompilationInfo;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -63,7 +64,9 @@ pub struct Assignment {
 
     /// True if the codomain of `head` is not stuck on a metavariable, for heuristics.
     pub has_rigid_type: bool,
-    pub var_type: Option<Type>
+    pub var_type: Option<Type>,
+    
+    pub compilation_info: CompilationInfo
 }
 
 /// The core data structure for terms and metavariables, consisting of an `assignment`

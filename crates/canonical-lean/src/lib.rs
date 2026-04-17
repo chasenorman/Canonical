@@ -529,7 +529,7 @@ pub unsafe extern "C" fn canonical(typ: *const LeanType, name: *const LeanString
         let tb = S::new(ir_type.to_type(&ES::new()));
         let problem_bind = S::new(Bind::new(to_string(name)));
         let mut owned_linked = Vec::new();
-        let prover = Prover::new(tb.downgrade(), problem_bind.downgrade(), &mut owned_linked);
+        let prover = Prover::new(tb.downgrade(), problem_bind.downgrade(), &mut owned_linked, None);
 
         let worker = thread::spawn(move || {
             main(prover, tx, count, arc_clone)
@@ -584,7 +584,7 @@ pub unsafe extern "C" fn refine(typ: *const LeanType) -> *const LeanResult {
         let tb_ref = S::new(ir_type.to_type(&ES::new()));
         let problem_bind = S::new(Bind::new("proof".to_string())); // must be stored
         let mut owned_linked = Vec::new();
-        let prover = Prover::new(tb_ref.downgrade(), problem_bind.downgrade(), &mut owned_linked);
+        let prover = Prover::new(tb_ref.downgrade(), problem_bind.downgrade(), &mut owned_linked, None);
 
         let new_state = AppState {
             current: prover.meta,

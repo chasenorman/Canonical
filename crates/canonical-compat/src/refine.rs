@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 use std::mem;
+use canonical_core::compiler::CompilationInfo;
 
 /// HTML for the refinement interface.
 const HTML: &str = include_str!("../static/index.html");
@@ -144,7 +145,8 @@ async fn assign(
         let Some(Some((assn, eqns, redexes, _))) = test(
             db,
             meta.borrow().gamma.sub_es(db.0).linked.unwrap(),
-            meta.clone()
+            meta.clone(),
+            CompilationInfo::new()
         ) else { break; };
 
         meta.borrow_mut().assign(assn, eqns, redexes);
@@ -285,10 +287,10 @@ fn find_with_id(meta: W<Meta>, id: usize) -> Option<W<Meta>> {
 fn find_autofill(meta: W<Meta>) -> Option<(W<Meta>, DeBruijnIndex)> {
     match &meta.borrow().assignment {
         None => {
-            let domain: Vec<(DeBruijnIndex, W<Linked>)> = meta.borrow().gamma.iter_unify(
+            let domain: Vec<(DeBruijnIndex, W<Linked>, CompilationInfo)> = meta.borrow().gamma.iter_unify(
                 meta.borrow().typ.as_ref().unwrap().0.clone()
-            ).filter(|(db, linked)| {
-                test(db.clone(), linked.clone(), meta.clone()).is_some_and(|o| o.is_some())
+            ).filter(|(db, linked, info)| {
+                test(db.clone(), linked.clone(), meta.clone(), *info).is_some_and(|o| o.is_some())
             }).collect();
 
             if domain.len() == 1 {

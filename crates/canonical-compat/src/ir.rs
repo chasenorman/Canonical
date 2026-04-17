@@ -6,6 +6,7 @@ use serde::{Serialize, Deserialize};
 use std::fs::File;
 use crate::reduction::*;
 use canonical_core::stats::SearchInfo;
+use canonical_core::compiler::CompilationInfo;
 
 /// A variable with a `name`, and whether it is proof `irrelevant` (unused).
 #[derive(PartialEq, Eq, Serialize, Deserialize, Clone)]
@@ -172,8 +173,8 @@ impl IRSpine {
 
         let options = meta.borrow().gamma.iter_unify(
             meta.borrow().typ.as_ref().unwrap().0.clone()
-        ).filter_map(|(db, linked)| {
-            if let Some(Some(result)) = test(db, linked, meta.clone()) {
+        ).filter_map(|(db, linked, info)| {
+            if let Some(Some(result)) = test(db, linked, meta.clone(), info) {
                 let name = result.0.bind.borrow().name.clone();
 
                 let (index, def) = match db.1 {
@@ -211,7 +212,7 @@ impl IRSpine {
         let args = self.args.iter().map(|t| S::new(t.to_term(&es))).collect();
  
         Meta {
-            assignment: Some(Assignment { head, args, bind, changes: Vec::new(), redex_changes: Vec::new(), _owned_linked: owned_linked, has_rigid_type: true, var_type: None }),
+            assignment: Some(Assignment { head, args, bind, changes: Vec::new(), redex_changes: Vec::new(), _owned_linked: owned_linked, has_rigid_type: true, var_type: None, compilation_info: CompilationInfo::new() }),
             typ: None,
             gamma: es,
             equations: Vec::new(),

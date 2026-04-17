@@ -6,7 +6,22 @@ use rustc_hash::FxHashMap as HashMap;
 use once_cell::sync::Lazy;
 use std::iter;
 
-pub static COMPILATION: Lazy<ArcSwap<HashMap<(usize, usize), Vec<Index>>>> = Lazy::new(|| ArcSwap::from_pointee(HashMap::default()));
+#[derive(Clone, Copy)]
+pub struct CompilationInfo {
+    probability: f64
+}
+
+impl CompilationInfo {
+    pub fn new() -> CompilationInfo {
+        CompilationInfo { probability: 1.0 }
+    }
+
+    pub fn weight(&self) -> f64 {
+        self.probability
+    }
+}
+
+pub static COMPILATION: Lazy<ArcSwap<HashMap<(usize, usize), Vec<(Index, CompilationInfo)>>>> = Lazy::new(|| ArcSwap::from_pointee(HashMap::default()));
 pub static COMPILATION_STRING: Lazy<ArcSwap<HashMap<String, Vec<String>>>> = Lazy::new(|| ArcSwap::from_pointee(HashMap::default()));
 
 #[derive(Clone, Copy)]
@@ -51,7 +66,7 @@ pub fn unify(goal: Term, premise: Term, depth: u32) -> bool {
     }
 }
 
-pub fn compile(typ: Type) {
+pub fn compile(typ: Type, unifications_answer: Option<std::collections::HashMap<String, std::collections::HashMap<String, f64>>>) {
     let mut goals = Vec::new();
     let mut owned_linked = Vec::new();
     let mut owned_metas = Vec::new();
@@ -64,10 +79,26 @@ pub fn compile(typ: Type) {
         let mut unifications_string = Vec::new();    
         for goal2 in goals.iter() {
             let mut unifications = Vec::new();
-            for premise in goal2.1.iter() {
+            for premise in goal2.1.iter() { 
                 let success = unify(goal.0.codomain(), premise.0.codomain(), 0);
                 if success {
-                    unifications.push(premise.1.clone());
+                    // if let Some(unifications_answer) = &unifications_answer {
+                    //     if unifications_answer[&goal.0.2.borrow().name][&premise.0.2.borrow().name] == 0 {
+                    //         continue
+                    //     }
+                    // }
+                    let probability = unifications_answer.as_ref().map(|x| {
+                        if !x.contains_key(&goal.0.2.borrow().name) {
+                            println!("{:?}", x);
+                            println!("missing key \"{}\"", &goal.0.2.borrow().name)
+                        }
+                        if !x[&goal.0.2.borrow().name].contains_key(&premise.0.2.borrow().name) {
+                           println!("{:?}", x);
+                           println!("missing key \"{}\" for \"{}\"", &premise.0.2.borrow().name, &goal.0.2.borrow().name)
+                        }
+                        return x[&goal.0.2.borrow().name][&premise.0.2.borrow().name]
+                    }).unwrap_or(1.0);
+                    unifications.push((premise.1.clone(), CompilationInfo { probability }));
                     unifications_string.push(premise.0.2.borrow().name.clone());
                     // count += 1;
                 }
@@ -87,13 +118,13 @@ pub fn compile(typ: Type) {
 
 impl ES {
     /// Returns an iterator of `DeBruijnIndex` in this `ES``, along with the `Linked` they are rooted at.
-    pub fn iter_unify(&self, tb: W<TypeBase>) -> impl Iterator<Item = (DeBruijnIndex, W<Linked>)> {
+    pub fn iter_unify(&self, tb: W<TypeBase>) -> impl Iterator<Item = (DeBruijnIndex, W<Linked>, CompilationInfo)> {
         iter::successors(self.linked.clone(), |node| 
             node.borrow().tail.clone() // Iterate over the linked list.
         ).enumerate().flat_map(move |(db, node)|
-            COMPILATION.load().get(&(tb.usize(), node.borrow().node.entry.context.as_ref().unwrap().0.usize())).unwrap().iter().map(|item| 
-                (DeBruijnIndex(DeBruijn(db as u32), item.clone()), node.clone())
-            ).collect::<Vec<(DeBruijnIndex, W<Linked>)>>().into_iter()
+            COMPILATION.load().get(&(tb.usize(), node.borrow().node.entry.context.as_ref().unwrap().0.usize())).unwrap().iter().map(|(item, info)| 
+                (DeBruijnIndex(DeBruijn(db as u32), item.clone()), node.clone(), info.clone())
+            ).collect::<Vec<(DeBruijnIndex, W<Linked>, CompilationInfo)>>().into_iter()
         )
     }
 }

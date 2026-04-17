@@ -23,7 +23,7 @@ unsafe impl Send for W<Meta> {}
 
 impl Prover {
     /// Creates a new Prover for the specified `Type`. 
-    pub fn new(tb_ref: W<TypeBase>, problem_bind: W<Bind>, owned_linked: &mut Vec<S<Linked>>) -> Self {
+    pub fn new(tb_ref: W<TypeBase>, problem_bind: W<Bind>, owned_linked: &mut Vec<S<Linked>>, unifications: Option<std::collections::HashMap<String, std::collections::HashMap<String, f64>>>) -> Self {
         let entry = &tb_ref.borrow().codomain.borrow().gamma.linked.as_ref().unwrap().borrow().node.entry;
         let node = Node { 
             entry: Entry { params_id: entry.params_id, lets_id: entry.lets_id, subst: None, 
@@ -31,7 +31,7 @@ impl Prover {
             bindings: tb_ref.borrow().codomain.borrow().gamma.linked.as_ref().unwrap().borrow().node.bindings.clone() 
         };
         let es = ES::new().append(node, owned_linked);
-        compile(Type(tb_ref.clone(), ES::new(), problem_bind.clone()));
+        compile(Type(tb_ref.clone(), ES::new(), problem_bind.clone()), unifications);
         let ty = Type(tb_ref.clone(), es, problem_bind.clone());
         let meta = S::new(Meta::new(ty));
         Prover { next_root: meta.downgrade(), meta }
@@ -101,18 +101,18 @@ impl Prover {
         next.meta.borrow_mut().stats_buffer.dfs_fence();
         next.meta.borrow_mut().stats_buffer.lifetime_attempts += 1;
 
-        // STEP_COUNT.fetch_add(1, Ordering::Relaxed);
+        STEP_COUNT.fetch_add(1, Ordering::Relaxed);
         
         let mut options = Vec::new();
         let mut total_weight = 0.0;
         let mut attempts = 0;
-        for (db, linked) in next.meta.borrow().gamma.iter_unify(next.meta.borrow().typ.as_ref().unwrap().0.clone()) {
-            let attempt = test(db, linked, next.meta.clone());
+        for (db, linked, info) in next.meta.borrow().gamma.iter_unify(next.meta.borrow().typ.as_ref().unwrap().0.clone()) {
+            let attempt = test(db, linked, next.meta.clone(), info);
             if attempt.is_some() {
                 attempts += 1;
             }
             if let Some(Some(result)) = attempt {
-                total_weight += result.3.weight();
+                total_weight += result.0.compilation_info.weight();
                 options.push(result);
             }
         }
@@ -126,14 +126,13 @@ impl Prover {
         if branching < 2 || next_result.tree_entropy > 1000.0 || num_jobs > 100 {
             while let Some((assignment, equations, redex_constraints, info)) = iter.next() {
                 let meta = next.meta.borrow_mut();
-
+                meta.branching = total_weight / assignment.compilation_info.weight();
                 meta.assign(assignment, equations, redex_constraints);
 
                 // Start assignment statistics.
                 meta.stats.assignment_fence();
                 meta.stats_buffer.assignment_fence();
 
-                meta.branching = total_weight / info.weight();
                 let result = self.parallel_dfs(max_entropy, max_size, callback);
                 
                 // The steps spent on this metavariable 
@@ -158,9 +157,10 @@ impl Prover {
         // Create cloned provers for each remaining option. 
         let provers: Vec<(Prover, W<Meta>, AssignmentInfo)> = iter.filter_map(
             |(assignment, equations, redex_constraints, info)| {
+            next.meta.borrow_mut().branching = total_weight / assignment.compilation_info.weight();
+            
             next.meta.borrow_mut().assign(assignment, equations, redex_constraints);
 
-            next.meta.borrow_mut().branching = total_weight / info.weight();
             let result = self.try_clone();
 
             next.meta.borrow_mut().unassign();
@@ -240,7 +240,7 @@ pub fn transfer(from: W<Meta>, mut to: W<Meta>, map: &mut HashMap<W<Meta>, W<Met
     
     let sub_es = to.borrow().gamma.sub_es(from_assn.head.0);
     let Some(Some((to_assn, eqns, redex_constraints, _info))) = 
-        test(from_assn.head, sub_es.linked.unwrap(), to.clone()) else { 
+        test(from_assn.head, sub_es.linked.unwrap(), to.clone(), from_assn.compilation_info) else { 
             return false; 
         };
     

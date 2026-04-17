@@ -2,6 +2,7 @@ use crate::core::*;
 use crate::heuristic::*;
 use crate::memory::{S, W, WVec};
 use crate::stats::*;
+use crate::compiler::CompilationInfo;
 use std::sync::atomic::AtomicBool;
 
 /// Set `RUN` to false to cancel terminate the ongoing problem. 
@@ -29,7 +30,7 @@ impl DFSResult {
 }
 
 /// Construct and test the `Assignment` from refining `meta` with `head`.
-pub fn test(head: DeBruijnIndex, curr: W<Linked>, mut meta: W<Meta>) -> Option<Option<(Assignment, Vec<Equation>, Vec<RedexConstraint>, AssignmentInfo)>> {
+pub fn test(head: DeBruijnIndex, curr: W<Linked>, mut meta: W<Meta>, info: CompilationInfo) -> Option<Option<(Assignment, Vec<Equation>, Vec<RedexConstraint>, AssignmentInfo)>> {
     let context = curr.borrow().node.entry.context.as_ref().unwrap();
     let tb = context.0.borrow().types.borrow()[head.1].as_ref().unwrap();
     let args: Vec<S<Meta>> = tb.borrow().args_metas(Some(meta.clone()));
@@ -41,6 +42,7 @@ pub fn test(head: DeBruijnIndex, curr: W<Linked>, mut meta: W<Meta>) -> Option<O
         head, args, bind: var_type.2.clone(), changes: Vec::new(), redex_changes: Vec::new(), _owned_linked,
         has_rigid_type: matches!(var_type.codomain().whnf::<true, ()>(&mut Vec::new(), &mut ()).1, Head::Var(_)),
         var_type: Some(var_type.clone()),
+        compilation_info: info
     });
 
     let Some((eqns, redexes)) = meta.clone().borrow_mut().test_assignment(meta.clone()) else {
