@@ -141,13 +141,13 @@ async fn assign(
     let mut i = 0;
 
     while i < AUTOFILL_LIMIT {
-        let Some(Some((assn, eqns, redexes, _))) = test(
+        let Some(Some((assn, constraints, _))) = test(
             db,
             meta.borrow().gamma.sub_es(db.0).linked.unwrap(),
             meta.clone()
         ) else { break; };
 
-        meta.borrow_mut().assign(assn, eqns, redexes);
+        meta.borrow_mut().assign(assn, constraints);
 
         if !state.autofill {
             break;

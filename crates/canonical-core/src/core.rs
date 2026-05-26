@@ -58,7 +58,6 @@ pub struct Assignment {
 
     /// `changes` and `_owned_linked` allow us to return to the previous state during backtracking.
     pub changes: Vec<W<Meta>>,
-    pub redex_changes: Vec<W<Meta>>,
     pub _owned_linked: Vec<S<Linked>>, // never accessed, only used for ownership.
 
     /// True if the codomain of `head` is not stuck on a metavariable, for heuristics.
@@ -72,9 +71,8 @@ pub struct Meta {
     pub assignment: Option<Assignment>,
     /// The local variable context.
     pub gamma: ES,
-    /// Equations that are stuck on this metavariable.
-    pub equations: Vec<Equation>,
-    pub redex_constraints: Vec<RedexConstraint>,
+    /// Constraints that are stuck on this metavariable.
+    pub constraints: Vec<Box<dyn Constraint>>,
 
     /// The `Type` of this metavariable.
     pub typ: Option<Type>,
@@ -100,8 +98,7 @@ impl Meta {
         Meta {
             assignment: None,
             gamma: typ.1.clone(),
-            equations: Vec::new(),
-            redex_constraints: Vec::new(),
+            constraints: Vec::new(),
             bindings: typ.0.borrow().codomain.borrow().bindings.clone(),
             from_original_problem: false,
             _owned_bindings: None,
@@ -114,59 +111,57 @@ impl Meta {
         }
     }
 
-    /// Checks that the assignment made to `self` does not violate an equation.
-    /// If successful, outputs the new equations and updates the `changes` of the assignment.
-    pub fn test_assignment(&mut self, this: W<Meta>) -> Option<(Vec<Equation>, Vec<RedexConstraint>)> {
-        let mut eqns = Vec::new();
+    /// Checks that the assignment made to `self` does not violate a constraint.
+    /// If successful, outputs the new constraints and updates the `changes` of the assignment.
+    pub fn test_assignment(&mut self, this: W<Meta>) -> Option<Vec<Box<dyn Constraint>>> {
+        let mut new_constraints: Vec<Box<dyn Constraint>> = Vec::new();
         let assn = self.assignment.as_mut().unwrap();
 
         // check the type of `self` with the codomain of the `var_type
         if (!Equation { premise: assn.var_type.as_ref().unwrap().codomain(), goal: self.typ.as_ref().unwrap().codomain() }
-            .reduce(&mut eqns, &mut assn.changes, &mut assn._owned_linked)) { return None; }
-
-        let mut redex_constraints = Vec::new();
+            .reduce(&mut new_constraints, &mut assn.changes, &mut assn._owned_linked)) { return None; }
 
         if !assn.bind.borrow().redexes.iter().all(|redex|
             RedexConstraint {
                 instructions: WVec::new(redex),
-                position: 0
-            }.reduce(&mut redex_constraints, &mut assn.redex_changes, this.clone())
+                position: 0,
+                blame: this.clone(),
+            }.reduce(&mut new_constraints, &mut assn.changes, &mut assn._owned_linked)
         ) { return None; }
 
-        if !self.redex_constraints.iter().all(|redex| 
-            redex.reduce(&mut redex_constraints, &mut assn.redex_changes, this.clone())
+        if !self.constraints.iter().all(|c|
+            c.reduce(&mut new_constraints, &mut assn.changes, &mut assn._owned_linked)
         ) { return None }
 
-        if !self.equations.iter().all(|eq|
-            eq.reduce(&mut eqns, &mut assn.changes, &mut assn._owned_linked)
-        ) { return None }
-
-        return Some((eqns, redex_constraints));
+        return Some(new_constraints);
     }
 
     /// Perform an (already tested) assignment.
-    pub fn assign(&mut self, mut assn: Assignment, eqns: Vec<Equation>, redex_constraints: Vec<RedexConstraint>) {
-        // store equations with their stuck metavaraible
-        for (item, slot) in eqns.into_iter().zip(assn.changes.iter_mut()) {
-            slot.borrow_mut().equations.push(item)
-        }
-        for (item, slot) in redex_constraints.into_iter().zip(assn.redex_changes.iter_mut()) {
-            slot.borrow_mut().redex_constraints.push(item)
+    pub fn assign(&mut self, mut assn: Assignment, constraints: Vec<Box<dyn Constraint>>) {
+        // store constraints with their stuck metavariable
+        for (item, slot) in constraints.into_iter().zip(assn.changes.iter_mut()) {
+            slot.borrow_mut().constraints.push(item)
         }
         self.assignment = Some(assn);
     }
 
-    /// Unassign the metavariable, returning equations to their pre-assignment state.
+    /// Unassign the metavariable, returning constraints to their pre-assignment state.
     pub fn unassign(&mut self) {
         let assn = self.assignment.as_mut().unwrap();
         for meta in assn.changes.iter_mut() {
-            meta.borrow_mut().equations.pop();
-        }
-        for meta in assn.redex_changes.iter_mut() {
-            meta.borrow_mut().redex_constraints.pop();
+            meta.borrow_mut().constraints.pop();
         }
         self.assignment = None;
     }
+}
+
+pub trait Constraint: std::any::Any {
+    /// Propagate the constraint on the basis of new assignments.
+    fn reduce(&self, constraints: &mut Vec<Box<dyn Constraint>>, changes: &mut Vec<W<Meta>>,
+              owned_linked: &mut Vec<S<Linked>>) -> bool;
+
+    /// Whether this constraint enforces an assignment on the stuck metavariable.
+    fn rigid(&self) -> bool { false }
 }
 
 /// A definitional (judgmental) equality between two `Term`s.
@@ -181,19 +176,24 @@ pub struct Equation {
 #[derive(Clone)]
 pub struct RedexConstraint {
     pub instructions: WVec<Instruction>,
-    pub position: usize
+    pub position: usize,
+    /// The metavariable this constraint is currently walking from.
+    pub blame: W<Meta>
 }
 
-impl RedexConstraint {
-    fn reduce(&self, redex_constraints: &mut Vec<RedexConstraint>, redex_changes: &mut Vec<W<Meta>>, mut blame: W<Meta>) -> bool {
+impl Constraint for RedexConstraint {
+    fn reduce(&self, constraints: &mut Vec<Box<dyn Constraint>>, changes: &mut Vec<W<Meta>>,
+              _owned_linked: &mut Vec<S<Linked>>) -> bool {
+        let mut blame = self.blame.clone();
         let mut i = self.position;
         loop {
             let Some(assn) = &blame.borrow().assignment else {
-                redex_constraints.push(RedexConstraint {
+                constraints.push(Box::new(RedexConstraint {
                     instructions: self.instructions.clone(),
-                    position: i
-                });
-                redex_changes.push(blame);
+                    position: i,
+                    blame: blame.clone(),
+                }));
+                changes.push(blame);
                 return true
             };
 
@@ -213,10 +213,10 @@ impl RedexConstraint {
 }
 
 
-impl Equation {
-    /// Break down the equation into equations that are stuck on metavariables, added to `equations`.
+impl Constraint for Equation {
+    /// Break down the equation into equations that are stuck on metavariables, added to `constraints`.
     /// Returns false if the equation is violated.
-    pub fn reduce(&self, equations: &mut Vec<Equation>, changes: &mut Vec<W<Meta>>,
+    fn reduce(&self, constraints: &mut Vec<Box<dyn Constraint>>, changes: &mut Vec<W<Meta>>,
               owned_linked: &mut Vec<S<Linked>>) -> bool {
         if owned_linked.len() > 1000 { return false }
         // Reduce both sides of the equation.
@@ -235,12 +235,12 @@ impl Equation {
                             Equation {
                                 premise: premise.arg(i, Entry::vars(var_id), owned_linked),
                                 goal: goal.arg(i, Entry::vars(var_id), owned_linked)
-                            }.reduce(equations, changes, owned_linked)
+                            }.reduce(constraints, changes, owned_linked)
                         )
                     }
                     WHNF(goal, Head::Meta(rhs)) => {
                         // goal is stuck, add an equation associated with goal_meta.
-                        equations.push(Equation { premise, goal });
+                        constraints.push(Box::new(Equation { premise, goal }));
                         changes.push(rhs);
                         true
                     }
@@ -248,11 +248,16 @@ impl Equation {
             }
             WHNF(premise, Head::Meta(lhs)) => {
                 // premise is stuck, add an equation associated with premise_meta.
-                equations.push(Equation { premise, goal: self.goal.clone() });
+                constraints.push(Box::new(Equation { premise, goal: self.goal.clone() }));
                 changes.push(lhs);
-                true   
+                true
             }
         }
+    }
+
+    fn rigid(&self) -> bool {
+        matches!(self.premise.whnf::<true, ()>(&mut Vec::new(), &mut ()).1, Head::Var(_)) ||
+        matches!(self.goal.whnf::<true, ()>(&mut Vec::new(), &mut ()).1, Head::Var(_))
     }
 }
 
@@ -603,8 +608,7 @@ impl TypeBase {
                 assignment: None,
                 typ: None,
                 gamma: ES::new(),
-                equations: Vec::new(),
-                redex_constraints: Vec::new(),
+                constraints: Vec::new(),
                 bindings: self.types.borrow()[Index::Param(i)].as_ref().unwrap().borrow().codomain.borrow().bindings.clone(),
                 from_original_problem: false,
                 _owned_bindings: None,

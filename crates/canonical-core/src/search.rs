@@ -29,7 +29,7 @@ impl DFSResult {
 }
 
 /// Construct and test the `Assignment` from refining `meta` with `head`.
-pub fn test(head: DeBruijnIndex, curr: W<Linked>, mut meta: W<Meta>) -> Option<Option<(Assignment, Vec<Equation>, Vec<RedexConstraint>, AssignmentInfo)>> {
+pub fn test(head: DeBruijnIndex, curr: W<Linked>, mut meta: W<Meta>) -> Option<Option<(Assignment, Vec<Box<dyn Constraint>>, AssignmentInfo)>> {
     let context = curr.borrow().node.entry.context.as_ref().unwrap();
     let tb = context.0.borrow().types.borrow()[head.1].as_ref().unwrap();
     let args: Vec<S<Meta>> = tb.borrow().args_metas(Some(meta.clone()));
@@ -38,13 +38,13 @@ pub fn test(head: DeBruijnIndex, curr: W<Linked>, mut meta: W<Meta>) -> Option<O
     let var_type = curr.borrow().node.entry.context.as_ref().unwrap().get(head.1, Entry::subst(Subst(WVec::new(&args), gamma.clone())), &mut _owned_linked);
 
     meta.borrow_mut().assignment = Some(Assignment {
-        head, args, bind: var_type.2.clone(), changes: Vec::new(), redex_changes: Vec::new(), _owned_linked,
+        head, args, bind: var_type.2.clone(), changes: Vec::new(), _owned_linked,
         has_rigid_type: matches!(var_type.codomain().whnf::<true, ()>(&mut Vec::new(), &mut ()).1, Head::Var(_)),
         var_type: Some(var_type.clone()),
     });
 
-    let Some((eqns, redexes)) = meta.clone().borrow_mut().test_assignment(meta.clone()) else {
-        // Equation violation. 
+    let Some(constraints) = meta.clone().borrow_mut().test_assignment(meta.clone()) else {
+        // Constraint violation.
         meta.borrow_mut().assignment = None;
         return Some(None);
     };
@@ -66,7 +66,7 @@ pub fn test(head: DeBruijnIndex, curr: W<Linked>, mut meta: W<Meta>) -> Option<O
         }, &mut assignment._owned_linked);
         arg.typ = Some(typ);
     }
-    Some(Some((assignment, eqns, redexes, assignment_info)))
+    Some(Some((assignment, constraints, assignment_info)))
 }
 
 /// Result from traversing the partial term, including the metavariable to be refined next and the entropy. 

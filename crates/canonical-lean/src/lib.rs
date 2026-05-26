@@ -1,7 +1,6 @@
 // https://github.com/leanprover/lean4/blob/master/src/include/lean/lean.h
 use std::ffi::{CStr, CString, c_char, c_void};
 use canonical_compat::ir::*;
-use canonical_compat::ai;
 use canonical_core::core::*;
 use canonical_core::prover::*;
 use canonical_core::search::*;
