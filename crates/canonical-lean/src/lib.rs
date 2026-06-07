@@ -540,8 +540,8 @@ pub unsafe extern "C" fn canonical(typ: *const LeanType, name: *const LeanString
                 to_canonical_result(terms, result, last_level_steps) as *const LeanObject
             }
             Err(e) => {
-                let msg = if let Some(s) = e.downcast_ref::<String>() { s.as_str() } else 
-                                if let Some(s) = e.downcast_ref::<&'static str>() { *s } else 
+                let msg = if let Some(s) = e.downcast_ref::<String>() { s.as_str() } else
+                                if let Some(s) = e.downcast_ref::<&'static str>() { *s } else
                                 { "internal panic" };
                 panic!("{}", msg);
             }
@@ -591,7 +591,7 @@ pub unsafe extern "C" fn refine(typ: *const LeanType) -> *const LeanResult {
                 });
             }
             Some(state) => {
-                *state.lock().unwrap() = new_state;
+                *state.lock().unwrap_or_else(|e| e.into_inner()) = new_state;
             }
         }
         lean_box(0)
@@ -605,7 +605,7 @@ pub unsafe extern "C" fn get_refinement() -> *const LeanResult {
         match GLOBAL_STATE.get() {
             None => panic!("No refine server running!"),
             Some(state) => {
-                let current = state.lock().unwrap().current.downgrade();
+                let current = state.lock().unwrap_or_else(|e| e.into_inner()).current.downgrade();
                 let bindings = current.borrow().gamma.linked.as_ref().unwrap().borrow().node.bindings.clone();
                 to_lean_term(
                     &IRTerm::from_lambda::<false>(

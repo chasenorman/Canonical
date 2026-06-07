@@ -72,7 +72,7 @@ impl ES {
         iter::successors(self.linked.clone(), |node| 
             node.borrow().tail.clone() // Iterate over the linked list.
         ).enumerate().flat_map(move |(db, node)|
-            COMPILATION.load().get(&(tb.usize(), node.borrow().node.entry.context.as_ref().unwrap().0.usize())).unwrap().iter().map(|item| 
+            COMPILATION.load().get(&(tb.usize(), node.borrow().node.entry.context.as_ref().unwrap().0.usize())).expect("COMPILATION missing.").iter().map(|item| 
                 (DeBruijnIndex(DeBruijn(db as u32), item.clone()), node.clone())
             ).collect::<Vec<(DeBruijnIndex, W<Linked>)>>().into_iter()
         )

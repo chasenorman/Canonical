@@ -480,14 +480,23 @@ impl ES {
             .map(|(db, _linked, var)| { (db, var) })
     }
 
+    /// The number of `Linked` nodes (explicit-substitution entries) in this `ES`.
+    pub fn length(&self) -> usize {
+        iter::successors(self.linked.clone(), |node|
+            node.borrow().tail.clone() // Iterate over the linked list.
+        ).count()
+    }
+
     pub fn get_many(&self, indices: &Vec<Vec<usize>>) -> Vec<W<Meta>> {
+        assert_eq!(self.length(), indices.len(),
+            "get_many: ES length does not match the input vector length");
         let mut result = Vec::new();
-        iter::successors(self.linked.clone(), |node| 
+        iter::successors(self.linked.clone(), |node|
             node.borrow().tail.clone() // Iterate over the linked list.
         ).enumerate().for_each(|(i, linked)| {
             let indices = &indices[i];
             if !indices.is_empty() {
-                let mvars = &linked.borrow().node.entry.subst.as_ref().unwrap().0;
+                let mvars = &linked.borrow().node.entry.subst.as_ref().expect("not a subst!").0;
                 for j in indices {
                     result.push(mvars[*j].downgrade());
                 }

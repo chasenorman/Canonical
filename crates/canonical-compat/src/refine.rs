@@ -13,7 +13,7 @@ use serde::Deserialize;
 use serde_json::json;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::thread;
 use std::time::Duration;
 use std::mem;
@@ -26,6 +26,10 @@ const AUTOFILL_LIMIT: u32 = 30;
 
 /// The global state of the backend.
 pub static GLOBAL_STATE: OnceLock<Arc<Mutex<AppState>>> = OnceLock::new();
+
+fn lock(state: &Arc<Mutex<AppState>>) -> MutexGuard<'_, AppState> {
+    state.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 /// When there is no server running, start an Axum server with the given AppState.
 pub async fn start_server(state: AppState) {
@@ -90,11 +94,9 @@ async fn index() -> impl IntoResponse {
     Html(HTML)
 }
 
-/// Get the current term as HTML, and next metavariable. 
+/// Get the current term as HTML, and next metavariable.
 async fn term(State(state): State<Arc<Mutex<AppState>>>) -> Json<serde_json::Value> {
-    let Ok(state) = state.lock() else {
-        return Json(json!({}))
-    };
+    let state = lock(&state);
     let meta = state.current.downgrade();
     let mut owned_linked = Vec::new();
     let term = IRSpine::from_body::<false>(Term { base: meta.clone(), es: meta.borrow().gamma.clone() }.whnf::<false, ()>(&mut owned_linked, &mut ()), true);
@@ -103,9 +105,9 @@ async fn term(State(state): State<Arc<Mutex<AppState>>>) -> Json<serde_json::Val
         .next
         .map(|m| m.meta.borrow() as *const Meta as usize);
 
-    return Json(json!({ 
-        "html": html, 
-        "next": next, 
+    return Json(json!({
+        "html": html,
+        "next": next,
         "undo": !state.undo.is_empty(),
         "redo": !state.redo.is_empty(),
         "autofill": state.autofill,
@@ -118,9 +120,7 @@ async fn assign(
     State(state): State<Arc<Mutex<AppState>>>,
     Json(assign): Json<Assign>,
 ) -> Json<serde_json::Value> {
-    let Ok(mut state) = state.lock() else {
-        return Json(json!({}))
-    };
+    let mut state = lock(&state);
 
     let index = if assign.def {
         Index::Let(assign.index)
@@ -172,9 +172,7 @@ async fn assign(
 
 /// Undo an assignment.
 async fn undo(State(state): State<Arc<Mutex<AppState>>>) -> Json<serde_json::Value> {
-    let Ok(mut state) = state.lock() else {
-        return Json(json!({}))
-    };
+    let mut state = lock(&state);
     
     if let Some(prev) = state.undo.pop() {
         let new = mem::replace(&mut state.current, prev);
@@ -185,9 +183,7 @@ async fn undo(State(state): State<Arc<Mutex<AppState>>>) -> Json<serde_json::Val
 
 /// Redo an assignment.
 async fn redo(State(state): State<Arc<Mutex<AppState>>>) -> Json<serde_json::Value> {
-    let Ok(mut state) = state.lock() else {
-        return Json(json!({}))
-    };
+    let mut state = lock(&state);
     
     if let Some(prev) = state.redo.pop() {
         let new = mem::replace(&mut state.current, prev);
@@ -198,9 +194,7 @@ async fn redo(State(state): State<Arc<Mutex<AppState>>>) -> Json<serde_json::Val
 
 /// Reset the prover to a single metavariable.
 async fn reset(State(state): State<Arc<Mutex<AppState>>>) -> Json<serde_json::Value> {
-    let Ok(mut state) = state.lock() else {
-        return Json(json!({}))
-    }; 
+    let mut state = lock(&state);
     state.undo = Vec::new();
     state.redo = Vec::new();
     state.current.borrow_mut().assignment = None;
@@ -209,9 +203,7 @@ async fn reset(State(state): State<Arc<Mutex<AppState>>>) -> Json<serde_json::Va
 
 /// Attempt to complete the proof with Canonical.
 async fn canonical(State(state): State<Arc<Mutex<AppState>>>) -> Json<serde_json::Value> {
-    let Ok(mut state) = state.lock() else {
-        return Json(json!({}))
-    };
+    let mut state = lock(&state);
     let meta = Meta::try_clone(state.current.downgrade()).unwrap().0;
     let prover = Prover { next_root: meta.downgrade(), meta };
 
@@ -225,9 +217,7 @@ async fn canonical(State(state): State<Arc<Mutex<AppState>>>) -> Json<serde_json
 
 /// Attempt to complete only the specified subtree with Canonical.
 async fn canonical1(State(state): State<Arc<Mutex<AppState>>>, Json(solve1) : Json<Solve1>) -> Json<serde_json::Value> {
-    let Ok(mut state) = state.lock() else {
-        return Json(json!({}))
-    };
+    let mut state = lock(&state);
     let current = state.current.downgrade();
     let (meta, map) = Meta::try_clone(current.clone()).unwrap();
     let next_root = map.get(&find_with_id(current, solve1.meta_id).unwrap()).unwrap().clone();
@@ -285,11 +275,10 @@ fn find_with_id(meta: W<Meta>, id: usize) -> Option<W<Meta>> {
 fn find_autofill(meta: W<Meta>) -> Option<(W<Meta>, DeBruijnIndex)> {
     match &meta.borrow().assignment {
         None => {
-            let domain: Vec<(DeBruijnIndex, W<Linked>)> = meta.borrow().gamma.iter_unify(
-                meta.borrow().typ.as_ref().unwrap().0.clone()
-            ).filter(|(db, linked)| {
+            let domain: Vec<(DeBruijnIndex, W<Linked>)> = meta.borrow().gamma.iter()
+            .filter(|(db, linked, _)| {
                 test(db.clone(), linked.clone(), meta.clone()).is_some_and(|o| o.is_some())
-            }).collect();
+            }).map(|(db, linked, _)| (db, linked)).collect();
 
             if domain.len() == 1 {
                 Some((meta, domain[0].0))
@@ -317,9 +306,7 @@ struct KV {
 
 /// Sets the given option flag.
 async fn set(State(state): State<Arc<Mutex<AppState>>>, Json(kv) : Json<KV>) -> Json<serde_json::Value> {
-    let Ok(mut state) = state.lock() else {
-        return Json(json!({}))
-    };
+    let mut state = lock(&state);
 
     if kv.key == "autofill" {
         state.autofill = kv.value;
@@ -329,7 +316,7 @@ async fn set(State(state): State<Arc<Mutex<AppState>>>, Json(kv) : Json<KV>) -> 
     Json(json!({}))
 }
 
-fn involved(mvar: W<Meta>) -> Vec<W<Meta>> {
+pub fn involved(mvar: W<Meta>) -> Vec<W<Meta>> {
     let typ = mvar.borrow().typ.as_ref().unwrap();
     let mut result = typ.1.get_many(&typ.0.borrow().codomain_mvars);
     result.extend(mvar.borrow().gamma.involved());

@@ -10,6 +10,22 @@ use canonical_core::stats::SearchInfo;
 use std::collections::HashSet;
 use std::any::Any;
 
+/// Render the metavariables involved with `meta`, each labeled with its name and the constraints stuck on it.
+fn involved_html(meta: W<Meta>) -> String {
+    let mut seen = HashSet::new();
+    crate::refine::involved(meta).into_iter()
+        .filter(|m| seen.insert(m.borrow() as *const Meta as usize))
+        .map(|m| {
+            // Argument/substitution metavariables have no type (see `to_body`), so don't assume one.
+            let name = match m.borrow().typ.as_ref() {
+                Some(typ) => "?&NoBreak;".to_string() + &typ.2.borrow().name,
+                None => "?".to_string(),
+            };
+            format!("<div class='involved'><span class='meta'>{name}</span></div>")
+        })
+        .collect()
+}
+
 /// Render a constraint stuck on a metavariable for the debug tooltip, recovering its concrete type.
 fn constraint_html(c: &dyn Constraint, owned_linked: &mut Vec<S<Linked>>) -> String {
     if let Some(eqn) = (c as &dyn Any).downcast_ref::<Equation>() {
@@ -191,9 +207,7 @@ impl IRSpine {
         let varname = "?&NoBreak;".to_string() + &meta.borrow().typ.as_ref().unwrap().2.borrow().name;
         let meta_id = meta.borrow() as *const Meta as usize;
 
-        let options = meta.borrow().gamma.iter_unify(
-            meta.borrow().typ.as_ref().unwrap().0.clone()
-        ).filter_map(|(db, linked)| {
+        let options = meta.borrow().gamma.iter().filter_map(|(db, linked, _)| {
             if let Some(Some(result)) = test(db, linked, meta.clone()) {
                 let name = result.0.bind.borrow().name.clone();
 
@@ -210,9 +224,11 @@ impl IRSpine {
         let mut owned_linked = Vec::new();
         let typ = IRSpine::from_body::<true>(meta.borrow().typ.as_ref().unwrap().codomain().whnf::<true, ()>(&mut owned_linked, &mut ()), false);
 
-        let inner = meta.borrow().constraints.iter()
+        let own = meta.borrow().constraints.iter()
             .map(|c| constraint_html(c.as_ref(), &mut owned_linked))
             .fold("".to_string(), |a, b| a + &b);
+        // Also surface the metavariables involved with this one, each with their own constraints.
+        let inner = own + &involved_html(meta.clone());
         let constraints = if inner.is_empty() {
             "".to_string()
         } else {
@@ -295,13 +311,6 @@ impl IRTerm {
     }
 }
 
-fn length(es: &Option<W<Linked>>) -> usize {
-    match es {
-        None => 0,
-        Some(linked) => 1 + length(&linked.borrow().tail)
-    }
-}
-
 fn bucket(indices: Vec<DeBruijnIndex>, len: usize) -> Vec<Vec<usize>> {
     let mut buckets = vec![Vec::new(); len];
     for DeBruijnIndex(DeBruijn(d), index) in indices {
@@ -314,36 +323,39 @@ fn bucket(indices: Vec<DeBruijnIndex>, len: usize) -> Vec<Vec<usize>> {
 
 impl IRType {
     pub fn to_type(&self, es: &ES, polarity: Polarity) -> (TypeBase, HashSet<Var>) {
-        // Note that used will NOT contain the top level. This is ok, but for different reasons in Goal and Premise case.
-        let (codomain, mut used) = self.codomain.to_term(es, polarity);  
+        let mut owned_linked = Vec::new();
+        let (codomain_es, bindings, entry) = self.codomain.extend_es(es, &mut owned_linked, &self.codomain.params, polarity.opposite());
+        let (codomain, mut used) = self.codomain.spine.to_body(codomain_es.clone(), bindings, owned_linked, polarity);
+        
+        // let (codomain, mut used) = self.codomain.to_term(es, polarity);  
 
         let mut vars_used = HashSet::new();
         let params : Vec<Option<S<TypeBase>>> = self.params.iter().map(|t| 
             t.as_ref().map(|t| {
-                let (param_type, param_used) = t.to_type(&codomain.gamma, polarity.opposite());
+                let (param_type, param_used) = t.to_type(&codomain_es, polarity.opposite());
                 vars_used.extend(param_used);
                 S::new(param_type)
             })).collect();
         let lets : Vec<Option<S<TypeBase>>> = self.lets.iter().map(|t| 
             t.as_ref().map(|t| {
-                let (let_type, let_used) = t.to_type(&codomain.gamma, polarity.opposite());
+                let (let_type, let_used) = t.to_type(&codomain_es, polarity.opposite());
                 vars_used.extend(let_used);
                 S::new(let_type)
             })).collect();
 
         // Using `es` also ensures the top level is not mentioned. 
-        let dbs = es.iter().filter_map(|(db, _, var)| if used.contains(&var) { Some(db) } else { None } ).collect();
-        let vars_dbs = es.iter().filter_map(|(db, _, var)| if vars_used.contains(&var) { Some(db) } else { None } ).collect();
-        let len = length(&es.linked);
+        let dbs = codomain_es.iter().filter_map(|(db, _, var)| if used.contains(&var) { Some(db) } else { None } ).collect();
+        let vars_dbs = codomain_es.iter().filter_map(|(db, _, var)| if vars_used.contains(&var) { Some(db) } else { None } ).collect();
             
         used.extend(vars_used);
+        used.retain(|v| v.entry_id != entry.params_id && v.entry_id != entry.lets_id); 
 
         (TypeBase {
-            codomain: S::new(codomain),
-            types: S::new(Indexed { params, lets }),
+            codomain_mvars: bucket(dbs,codomain_es.length()),
+            types_mvars: bucket(vars_dbs, codomain_es.length()),
 
-            codomain_mvars: bucket(dbs, len),
-            types_mvars: bucket(vars_dbs, len)
+            codomain: S::new(codomain),
+            types: S::new(Indexed { params, lets })
         }, used)
     }
 }

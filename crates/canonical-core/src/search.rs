@@ -30,12 +30,12 @@ impl DFSResult {
 
 /// Construct and test the `Assignment` from refining `meta` with `head`.
 pub fn test(head: DeBruijnIndex, curr: W<Linked>, mut meta: W<Meta>) -> Option<Option<(Assignment, Vec<Box<dyn Constraint>>, AssignmentInfo)>> {
-    let context = curr.borrow().node.entry.context.as_ref().unwrap();
-    let tb = context.0.borrow().types.borrow()[head.1].as_ref().unwrap();
+    let Some(context) = curr.borrow().node.entry.context.as_ref() else { return None };
+    let Some(tb) = context.0.borrow().types.borrow()[head.1].as_ref() else { return None };
     let args: Vec<S<Meta>> = tb.borrow().args_metas(Some(meta.clone()));
     let gamma = meta.borrow().gamma.clone();
     let mut _owned_linked = Vec::new();
-    let var_type = curr.borrow().node.entry.context.as_ref().unwrap().get(head.1, Entry::subst(Subst(WVec::new(&args), gamma.clone())), &mut _owned_linked);
+    let var_type = context.get(head.1, Entry::subst(Subst(WVec::new(&args), gamma.clone())), &mut _owned_linked);
 
     meta.borrow_mut().assignment = Some(Assignment {
         head, args, bind: var_type.2.clone(), changes: Vec::new(), _owned_linked,
