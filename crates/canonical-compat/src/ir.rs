@@ -6,6 +6,7 @@ use serde::{Serialize, Deserialize};
 use std::fs::File;
 use crate::reduction::*;
 use canonical_core::stats::SearchInfo;
+use std::collections::HashSet;
 use std::any::Any;
 
 /// Render a constraint stuck on a metavariable for the debug tooltip, recovering its concrete type.
@@ -75,11 +76,12 @@ pub struct IRType {
 }
 
 impl IRVar {
-    pub fn to_bind(&self) -> Bind {
+    pub fn to_bind(&self, polarity: Polarity) -> Bind {
         Bind {
             name: self.name.clone(),
             rules: Vec::new(),
             redexes: Vec::new(),
+            polarity,
             owned_bindings: Vec::new()
         }
     }
@@ -104,22 +106,22 @@ fn _get_rules(term: &Term, attribution: &mut Vec<String>, owned_linked: &mut Vec
 }
 
 /// Create a `Bind` with the `preferred_name`, appending a suffix such that it is not contained in `es`.
-fn disambiguate_bind(preferred_name: &String, es: &ES) -> Bind {
+fn disambiguate_bind(preferred_name: &String, es: &ES, polarity: Polarity) -> Bind {
     let mut count = 0;
     let mut name = preferred_name.clone();
     while es.index_of( &name).is_some() {
         count += 1;
         name = preferred_name.clone() + &count.to_string();
     }
-    Bind::new(name)
+    Bind::new(name, polarity)
 }
 
 /// Construct a copy of `bindings` such that the names are not already in `es`.
-fn disambiguate(bindings: W<Indexed<S<Bind>>>, es: &ES) -> Indexed<S<Bind>> {
+fn disambiguate(bindings: W<Indexed<S<Bind>>>, es: &ES, polarity: Polarity) -> Indexed<S<Bind>> {
     let params = bindings.borrow().params.iter().map(
-        |b| S::new(disambiguate_bind(&b.borrow().name, es))).collect();
+        |b| S::new(disambiguate_bind(&b.borrow().name, es, polarity))).collect();
     let lets = bindings.borrow().lets.iter().map(
-        |b| S::new(disambiguate_bind(&b.borrow().name, es))).collect();
+        |b| S::new(disambiguate_bind(&b.borrow().name, es, polarity))).collect();
     Indexed { params, lets }
 }
 
@@ -139,7 +141,7 @@ impl IRSpine {
                 let mut _owned_bindings = Vec::new();
 
                 let args = whnf.base.borrow().assignment.as_ref().unwrap().args.iter().map(|arg| {
-                    let bindings = S::new(disambiguate(arg.borrow().bindings.clone(), &whnf.es));
+                    let bindings = S::new(disambiguate(arg.borrow().bindings.clone(), &whnf.es, Polarity::Goal));
                     let wbindings = bindings.downgrade();
                     let es = whnf.es.append(Node {
                         entry: Entry::vars(next_u64()),
@@ -166,7 +168,7 @@ impl IRSpine {
                 for i in 0..subst.0.len() {
                     let mut owned_linked = Vec::new();
                     let arg = subst.0[i].downgrade();
-                    let bindings = S::new(disambiguate(arg.borrow().bindings.clone(), &subst.1));
+                    let bindings = S::new(disambiguate(arg.borrow().bindings.clone(), &subst.1, Polarity::Goal));
                     let wbindings = bindings.downgrade();
                     let es = subst.1.append(Node {
                         entry: Entry::vars(next_u64()),
@@ -222,11 +224,19 @@ impl IRSpine {
     }
 
     /// Finds the head `DeBruijnIndex` in the `es` and creates a Meta with `bindings` and recursively converted arguments.
-    pub fn to_body(&self, es: ES, bindings: S<Indexed<S<Bind>>>, owned_linked: Vec<S<Linked>>) -> Meta {
-        let (head, bind) = es.index_of(&self.head).expect(&format!("Undeclared variable: {}", self.head));
-        let args = self.args.iter().map(|t| S::new(t.to_term(&es))).collect();
+    pub fn to_body(&self, es: ES, bindings: S<Indexed<S<Bind>>>, owned_linked: Vec<S<Linked>>, polarity: Polarity) -> (Meta, HashSet<Var>) {
+        let (head, var) = es.index_of(&self.head).expect(&format!("Undeclared variable: {}", self.head));
+        let mut used = HashSet::new();
+        let bind = var.bind.clone();
+        if matches!(var.bind.borrow().polarity, Polarity::Goal) { used.insert(var); } // TODO consider reduction rules
+        let mut args = Vec::new();
+        for arg in self.args.iter() {
+            let (arg, arg_used) = arg.to_term(&es, polarity);
+            args.push(S::new(arg));
+            used.extend(arg_used);
+        }
  
-        Meta {
+        (Meta {
             assignment: Some(Assignment { head, args, bind, changes: Vec::new(), _owned_linked: owned_linked, has_rigid_type: true, var_type: None }),
             typ: None,
             gamma: es,
@@ -239,22 +249,20 @@ impl IRSpine {
             has_rigid_equation: false,
             branching: 1.0,
             parent: None,
-        }
+        }, used)
     }
 }
 
 impl IRTerm {
     /// Return a version of `es` with `self.lets` and `params`.
-    pub fn extend_es(&self, es: &ES, owned_linked: &mut Vec<S<Linked>>, params: &[IRVar]) -> (ES, S<Indexed<S<Bind>>>) {
+    pub fn extend_es(&self, es: &ES, owned_linked: &mut Vec<S<Linked>>, params: &[IRVar], polarity: Polarity) -> (ES, S<Indexed<S<Bind>>>, Entry) {
         let mut bindings = S::new(Indexed {
-            params: params.iter().map(|v| S::new(v.to_bind())).collect(),
-            lets: self.lets.iter().map(|d| S::new(d.var.to_bind())).collect()
+            params: params.iter().map(|v| S::new(v.to_bind(polarity))).collect(),
+            lets: self.lets.iter().map(|d| S::new(d.var.to_bind(polarity))).collect()
         });
 
-        let node = Node { 
-            entry: Entry { params_id: next_u64(), lets_id: next_u64(), subst: None, context: None }, 
-            bindings: bindings.downgrade() 
-        };
+        let entry = Entry { params_id: next_u64(), lets_id: next_u64(), subst: None, context: None };
+        let node = Node { entry: entry.clone(), bindings: bindings.downgrade() };
         let es = es.append(node, owned_linked);
 
         // Use the extended ES to resolve the values of the lets. 
@@ -264,13 +272,15 @@ impl IRTerm {
             bindings.borrow_mut().lets[i].borrow_mut().redexes = to_redexes(&d.rules, &es);
             bindings.borrow_mut().lets[i].borrow_mut().owned_bindings = owned_bindings;
         }
-        (es, bindings)
+        (es, bindings, entry)
     }
 
-    pub fn to_term(&self, es: &ES) -> Meta {
+    pub fn to_term(&self, es: &ES, polarity: Polarity) -> (Meta, HashSet<Var>) {
         let mut owned_linked = Vec::new();
-        let (es, bindings) = self.extend_es(es, &mut owned_linked, &self.params);
-        self.spine.to_body(es, bindings, owned_linked)
+        let (es, bindings, entry) = self.extend_es(es, &mut owned_linked, &self.params, polarity.opposite());
+        let (mvar, mut used) = self.spine.to_body(es, bindings, owned_linked, polarity);
+        used.retain(|v| v.entry_id != entry.params_id && v.entry_id != entry.lets_id); // TODO reduction rules
+        (mvar, used)
     }
 
     pub fn from_lambda<const RULES: bool>(term: Term, bindings: W<Indexed<S<Bind>>>, html: bool) -> IRTerm {
@@ -284,19 +294,54 @@ impl IRTerm {
     }
 }
 
+fn length(es: &Option<W<Linked>>) -> usize {
+    match es {
+        None => 0,
+        Some(linked) => 1 + length(&linked.borrow().tail)
+    }
+}
+
+fn bucket(indices: Vec<DeBruijnIndex>, len: usize) -> Vec<Vec<Index>> {
+    let mut buckets = vec![Vec::new(); len];
+    for DeBruijnIndex(DeBruijn(d), index) in indices {
+        buckets[d as usize].push(index);
+    }
+    buckets
+}
+
 impl IRType {
-    pub fn to_type(&self, es: &ES) -> TypeBase {
-        let codomain = self.codomain.to_term(es);
+    pub fn to_type(&self, es: &ES, polarity: Polarity) -> (TypeBase, HashSet<Var>) {
+        // Note that used will NOT contain the top level. This is ok, but for different reasons in Goal and Premise case.
+        let (codomain, mut used) = self.codomain.to_term(es, polarity);  
 
+        let mut vars_used = HashSet::new();
         let params : Vec<Option<S<TypeBase>>> = self.params.iter().map(|t| 
-            t.as_ref().map(|t| S::new(t.to_type(&codomain.gamma)))).collect();
-        let lets : Vec<Option<S<TypeBase>>> = self.lets.iter().map(|t|
-             t.as_ref().map(|t| S::new(t.to_type(&codomain.gamma)))).collect();
+            t.as_ref().map(|t| {
+                let (param_type, param_used) = t.to_type(&codomain.gamma, polarity.opposite());
+                vars_used.extend(param_used);
+                S::new(param_type)
+            })).collect();
+        let lets : Vec<Option<S<TypeBase>>> = self.lets.iter().map(|t| 
+            t.as_ref().map(|t| {
+                let (let_type, let_used) = t.to_type(&codomain.gamma, polarity.opposite());
+                vars_used.extend(let_used);
+                S::new(let_type)
+            })).collect();
 
-        TypeBase {
+        // Using `es` also ensures the top level is not mentioned. 
+        let dbs = es.iter().filter_map(|(db, _, var)| if used.contains(&var) { Some(db) } else { None } ).collect();
+        let vars_dbs = es.iter().filter_map(|(db, _, var)| if vars_used.contains(&var) { Some(db) } else { None } ).collect();
+        let len = length(&es.linked);
+            
+        used.extend(vars_used);
+
+        (TypeBase {
             codomain: S::new(codomain),
-            types: S::new(Indexed { params, lets })
-        }
+            types: S::new(Indexed { params, lets }),
+
+            codomain_mvars: bucket(dbs, len),
+            types_mvars: bucket(vars_dbs, len)
+        }, used)
     }
 }
 

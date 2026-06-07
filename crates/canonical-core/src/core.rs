@@ -7,6 +7,7 @@ use mimalloc::MiMalloc;
 use std::cell::RefCell;
 use std::ops::ControlFlow;
 use core::slice::Iter;
+use std::hash::{Hash, Hasher};
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -327,16 +328,18 @@ pub struct Bind {
     pub name: String,
     pub rules: Vec<Rule>,
     pub redexes: Vec<Vec<Instruction>>,
+    pub polarity: Polarity,
 
     pub owned_bindings: Vec<S<Indexed<S<Bind>>>>
 }
 
 impl Bind {
-    pub fn new(name: String) -> Self {
+    pub fn new(name: String, polarity: Polarity) -> Self {
         Bind {
             name,
             rules: Vec::new(),
             redexes: Vec::new(),
+            polarity,
             owned_bindings: Vec::new()
         }
     }
@@ -437,19 +440,23 @@ impl ES {
     }
 
     /// Returns an iterator of `DeBruijnIndex` in this `ES``, along with the `Linked` they are rooted at.
-    pub fn iter(&self) -> impl Iterator<Item = (DeBruijnIndex, W<Linked>)> {
+    pub fn iter(&self) -> impl Iterator<Item = (DeBruijnIndex, W<Linked>, Var)> {
         iter::successors(self.linked.clone(), |node| 
             node.borrow().tail.clone() // Iterate over the linked list.
         ).enumerate().flat_map(move |(db, node)| {
             let indices: Vec<Index> = Indexed::iter(node.borrow().node.bindings.borrow()).collect();
-            indices.into_iter().map(move |item| (DeBruijnIndex(DeBruijn(db as u32), item), node.clone()))
+            indices.into_iter().map(move |item| 
+                (DeBruijnIndex(DeBruijn(db as u32), item), node.clone(), Var {
+                    entry_id: if matches!(item, Param(_)) {node.borrow().node.entry.params_id} else {node.borrow().node.entry.lets_id}, 
+                    index: item, bind: node.borrow().node.bindings.borrow()[item].downgrade(),
+                }))
         })
     }
 
     /// Finds the `DeBruijnIndex` and `Bind` with a certain `name` in this `ES`.
-    pub fn index_of(&self, name: &String) -> Option<(DeBruijnIndex, W<Bind>)> {
-        self.iter().find(|(db, linked)| &linked.borrow().node.bindings.borrow()[db.1].borrow().name == name)
-            .map(|(db, linked)| (db, linked.borrow().node.bindings.borrow()[db.1].downgrade()))
+    pub fn index_of(&self, name: &String) -> Option<(DeBruijnIndex, Var)> {
+        self.iter().find(|(_db, _linked, var)| &var.bind.borrow().name == name)
+            .map(|(db, _linked, var)| { (db, var) })
     }
 }
 
@@ -587,15 +594,16 @@ impl <'a> WHNF {
     }
 }
 
-pub enum Polarity { 
-    Premise, Goal
-}
-
 /// A `DeBruijnIndex`-ed type, with a `codomain` (return type)
 /// and parameter/let `types` 
 pub struct TypeBase {
     pub codomain: S<Meta>,
     pub types: S<Indexed<Option<S<TypeBase>>>>,
+    
+    /// For negative `TypeBases`, all negative indices used in the `codomain`.
+    /// For positive `TypeBases`, all negative indices used in `types`.
+    pub codomain_mvars: Vec<Vec<Index>>,
+    pub types_mvars: Vec<Vec<Index>>
 }
 
 impl TypeBase {
@@ -649,14 +657,43 @@ impl Type {
 /// A variable from entry `entry_id` at position `index`,
 /// associated with `bind` from the original problem. 
 pub struct Var {
-    entry_id: u64,
+    pub entry_id: u64,
     index: Index,
     pub bind: W<Bind>
 }
 
-impl Var {
+impl PartialEq for Var {
     /// Two variables from the same entry at the same position are equal.
     fn eq(&self, other: &Self) -> bool {
         self.index == other.index && self.entry_id == other.entry_id
+    }
+}
+
+impl Eq for Var {}
+impl Hash for Var {
+    fn hash<H>(&self, h: &mut H) where H: Hasher { 
+        h.write_u64(self.entry_id);
+        match self.index {
+            Param(i) => {
+                h.write_u8(0);
+                h.write_usize(i);
+            }
+            Let(i) => {
+                h.write_u8(255);
+                h.write_usize(i);
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum Polarity { Goal, Premise }
+
+impl Polarity {
+    pub fn opposite(&self) -> Polarity {
+        match self {
+            Polarity::Goal => Polarity::Premise,
+            Polarity::Premise => Polarity::Goal
+        }
     }
 }
