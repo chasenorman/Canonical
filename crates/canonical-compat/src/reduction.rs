@@ -10,8 +10,8 @@ struct Build {
 impl IRTerm {
     pub fn add_local(&self, es: &ES, owned_linked: &mut Vec<S<Linked>>) -> (ES, S<Indexed<S<Bind>>>) {
         let bindings = S::new(Indexed {
-            params: self.params.iter().map(|v| S::new(v.to_bind())).collect(),
-            lets: self.lets.iter().map(|d| S::new(d.var.to_bind())).collect()
+            params: self.params.iter().map(|v| S::new(v.to_bind(Polarity::Premise))).collect(), // TODO
+            lets: self.lets.iter().map(|d| S::new(d.var.to_bind(Polarity::Premise))).collect() // TODO
         });
 
         let node = Node { 
@@ -96,10 +96,10 @@ fn get_bindings(build: &mut Build, term: &IRSpine, es: ES) -> S<Indexed<S<Bind>>
         let (es, _bindings) = arg.add_local(&es, &mut owned_linked);
         if es.index_of(&arg.spine.head).is_none() && build.arguments.contains(&arg.spine.head) {
             build.arguments.remove(&arg.spine.head);
-            params.push(S::new(Bind::new(arg.spine.head.clone())));
+            params.push(S::new(Bind::new(arg.spine.head.clone(), Polarity::Premise))); // TODO
             found = true;
         } else {
-            params.push(S::new(Bind::new("*".to_string())));
+            params.push(S::new(Bind::new("*".to_string(), Polarity::Premise))); // TODO
         }
     }
 
@@ -187,7 +187,7 @@ pub fn to_rules(rules: &Vec<IRRule>, es: &ES, owned_linked: &mut Vec<S<Linked>>,
 
         Rule {
             pattern: build.pattern,
-            replacement: S::new(rule.rhs.to_body(rhs_es, S::new(Indexed { params: Vec::new(), lets: Vec::new() }), Vec::new())),
+            replacement: S::new(rule.rhs.to_body(rhs_es, S::new(Indexed { params: Vec::new(), lets: Vec::new() }), Vec::new(), Polarity::Goal).0), // TODO
             attribution: rule.attribution.clone()
         }
     }).collect()

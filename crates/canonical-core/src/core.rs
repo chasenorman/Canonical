@@ -118,8 +118,11 @@ impl Meta {
         let mut new_constraints: Vec<Box<dyn Constraint>> = Vec::new();
         let assn = self.assignment.as_mut().unwrap();
 
+        let premise_type = assn.var_type.clone().unwrap();
+        let goal_type = self.typ.clone().unwrap();
+
         // check the type of `self` with the codomain of the `var_type
-        if (!Equation { premise: assn.var_type.as_ref().unwrap().codomain(), goal: self.typ.as_ref().unwrap().codomain() }
+        if (!Equation { premise: premise_type.codomain(), goal: goal_type.codomain(), premise_type, goal_type }
             .reduce(&mut new_constraints, &mut assn.changes, &mut assn._owned_linked)) { return None; }
 
         if !assn.bind.borrow().redexes.iter().all(|redex|
@@ -163,6 +166,8 @@ pub trait Constraint: std::any::Any {
 
     /// Whether this constraint enforces an assignment on the stuck metavariable.
     fn rigid(&self) -> bool { false }
+
+    fn involved(&self) -> Vec<W<Meta>>;
 }
 
 /// A definitional (judgmental) equality between two `Term`s.
@@ -171,7 +176,11 @@ pub struct Equation {
     /// `premise` is a subterm of the `codomain` of the `Type` of a variable
     pub premise: Term,
     /// `goal` is a subterm of the `codomain` of the `Type` of a metavariable
-    pub goal: Term
+    pub goal: Term,
+
+
+    pub premise_type: Type,
+    pub goal_type: Type
 }
 
 #[derive(Clone)]
@@ -211,6 +220,10 @@ impl Constraint for RedexConstraint {
             i += 1;
         }
     }
+
+    fn involved(&self) -> Vec<W<Meta>> {
+        return Vec::new(); // TODO
+    }
 }
 
 
@@ -235,13 +248,15 @@ impl Constraint for Equation {
                         (0..premise.base.borrow().assignment.as_ref().unwrap().args.len()).all(|i|
                             Equation {
                                 premise: premise.arg(i, Entry::vars(var_id), owned_linked),
-                                goal: goal.arg(i, Entry::vars(var_id), owned_linked)
+                                goal: goal.arg(i, Entry::vars(var_id), owned_linked), 
+                                premise_type: self.premise_type.clone(),
+                                goal_type: self.goal_type.clone()
                             }.reduce(constraints, changes, owned_linked)
                         )
                     }
                     WHNF(goal, Head::Meta(rhs)) => {
                         // goal is stuck, add an equation associated with goal_meta.
-                        constraints.push(Box::new(Equation { premise, goal }));
+                        constraints.push(Box::new(Equation { premise, goal, premise_type: self.premise_type.clone(), goal_type: self.goal_type.clone() }));
                         changes.push(rhs);
                         true
                     }
@@ -249,7 +264,7 @@ impl Constraint for Equation {
             }
             WHNF(premise, Head::Meta(lhs)) => {
                 // premise is stuck, add an equation associated with premise_meta.
-                constraints.push(Box::new(Equation { premise, goal: self.goal.clone() }));
+                constraints.push(Box::new(Equation { premise, goal: self.goal.clone(), premise_type: self.premise_type.clone(), goal_type: self.goal_type.clone() }));
                 changes.push(lhs);
                 true
             }
@@ -259,6 +274,12 @@ impl Constraint for Equation {
     fn rigid(&self) -> bool {
         matches!(self.premise.whnf::<true, ()>(&mut Vec::new(), &mut ()).1, Head::Var(_)) ||
         matches!(self.goal.whnf::<true, ()>(&mut Vec::new(), &mut ()).1, Head::Var(_))
+    }
+
+    fn involved(&self) -> Vec<W<Meta>> {
+        let mut x = self.goal_type.1.get_many(&self.goal_type.0.borrow().codomain_mvars);
+        x.extend(self.premise_type.1.get_many(&self.premise_type.0.borrow().codomain_mvars));
+        return x
     }
 }
 
@@ -458,6 +479,34 @@ impl ES {
         self.iter().find(|(_db, _linked, var)| &var.bind.borrow().name == name)
             .map(|(db, _linked, var)| { (db, var) })
     }
+
+    pub fn get_many(&self, indices: &Vec<Vec<usize>>) -> Vec<W<Meta>> {
+        let mut result = Vec::new();
+        iter::successors(self.linked.clone(), |node| 
+            node.borrow().tail.clone() // Iterate over the linked list.
+        ).enumerate().for_each(|(i, linked)| {
+            let indices = &indices[i];
+            if !indices.is_empty() {
+                let mvars = &linked.borrow().node.entry.subst.as_ref().unwrap().0;
+                for j in indices {
+                    result.push(mvars[*j].downgrade());
+                }
+            }
+        });
+        return result
+    }
+
+    pub fn involved(&self) -> Vec<W<Meta>> {
+        let mut result = Vec::new();
+        iter::successors(self.linked.clone(), |node| 
+            node.borrow().tail.clone() // Iterate over the linked list.
+        ).for_each(|linked| {
+            if let Some(typ) = &linked.borrow().node.entry.context {
+                result.extend(typ.1.get_many(&typ.0.borrow().types_mvars))
+            }
+        });
+        return result;
+    }
 }
 
 /// A Term is a `DeBruijnIndex`-ed `base` with an explicit substitution `es` 
@@ -602,8 +651,8 @@ pub struct TypeBase {
     
     /// For negative `TypeBases`, all negative indices used in the `codomain`.
     /// For positive `TypeBases`, all negative indices used in `types`.
-    pub codomain_mvars: Vec<Vec<Index>>,
-    pub types_mvars: Vec<Vec<Index>>
+    pub codomain_mvars: Vec<Vec<usize>>,
+    pub types_mvars: Vec<Vec<usize>>
 }
 
 impl TypeBase {

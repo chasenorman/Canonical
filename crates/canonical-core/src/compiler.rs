@@ -23,16 +23,16 @@ fn get_type(term: Term, owned_linked: &mut Vec<S<Linked>>) -> Option<Term> {
     })
 }
 
-pub fn unify(goal: Term, premise: Term, depth: u32) -> bool {
+pub fn unify(goal: Term, premise: Term, goal_type: Type, premise_type: Type, depth: u32) -> bool {
     if depth > 1 { return true }
     let mut owned_linked = Vec::new();
     // println!("Unify depth {}: {:} = {:}", depth, goal.whnf::<true, ()>(&mut owned_linked, &mut ()), 
         // premise.whnf::<true, ()>(&mut owned_linked, &mut ()));
-    let eq = Equation { goal: goal.clone(), premise: premise.clone() };
+    let eq = Equation { goal: goal.clone(), premise: premise.clone(), goal_type: goal_type.clone(), premise_type: premise_type.clone() };
     let success = eq.reduce(&mut Vec::new(), &mut Vec::new(), &mut Vec::new());
     if !success { return false; }
     match (get_type(goal, &mut owned_linked), get_type(premise, &mut owned_linked)) {
-        (Some(goal), Some(premise)) => return unify(goal, premise, depth + 1),
+        (Some(goal), Some(premise)) => return unify(goal, premise, goal_type, premise_type, depth + 1),
         (None, None) => return true,
         _ => return false
     }
@@ -50,7 +50,7 @@ pub fn compile(typ: Type) {
         for goal2 in goals.iter() {
             let mut unifications = Vec::new();
             for premise in goal2.1.iter() {
-                let success = unify(goal.0.codomain(), premise.0.codomain(), 0);
+                let success = unify(goal.0.codomain(), premise.0.codomain(), goal.0.clone(), premise.0.clone(), 0);
                 if success {
                     unifications.push(premise.1.clone());
                     // count += 1;

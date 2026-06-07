@@ -328,3 +328,13 @@ async fn set(State(state): State<Arc<Mutex<AppState>>>, Json(kv) : Json<KV>) -> 
     }
     Json(json!({}))
 }
+
+fn involved(mvar: W<Meta>) -> Vec<W<Meta>> {
+    let typ = mvar.borrow().typ.as_ref().unwrap();
+    let mut result = typ.1.get_many(&typ.0.borrow().codomain_mvars);
+    result.extend(mvar.borrow().gamma.involved());
+    for constraint in &mvar.borrow().constraints {
+        result.extend(constraint.involved())
+    }
+    return result;
+}

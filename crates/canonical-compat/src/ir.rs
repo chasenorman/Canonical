@@ -1,5 +1,6 @@
 use canonical_core::core::*;
 use canonical_core::memory::{S, W};
+use canonical_core::core::Index::Param;
 use canonical_core::search::test;
 use std::fmt;
 use serde::{Serialize, Deserialize};
@@ -301,10 +302,12 @@ fn length(es: &Option<W<Linked>>) -> usize {
     }
 }
 
-fn bucket(indices: Vec<DeBruijnIndex>, len: usize) -> Vec<Vec<Index>> {
+fn bucket(indices: Vec<DeBruijnIndex>, len: usize) -> Vec<Vec<usize>> {
     let mut buckets = vec![Vec::new(); len];
     for DeBruijnIndex(DeBruijn(d), index) in indices {
-        buckets[d as usize].push(index);
+        if let Param(index) = index {
+            buckets[d as usize].push(index);
+        }
     }
     buckets
 }
