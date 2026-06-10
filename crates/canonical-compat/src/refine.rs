@@ -17,6 +17,8 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::thread;
 use std::time::Duration;
 use std::mem;
+use std::collections::HashMap;
+use union_find::{UnionFind, UnionBySize, QuickUnionUf};
 
 /// HTML for the refinement interface.
 const HTML: &str = include_str!("../static/index.html");
@@ -101,6 +103,14 @@ async fn term(State(state): State<Arc<Mutex<AppState>>>) -> Json<serde_json::Val
     let mut owned_linked = Vec::new();
     let term = IRSpine::from_body::<false>(Term { base: meta.clone(), es: meta.borrow().gamma.clone() }.whnf::<false, ()>(&mut owned_linked, &mut ()), true);
     let html = term.to_string();
+
+    let components = split(state.current.downgrade());
+    let components : Vec<Vec<String>> = components.iter().map(|v| v.iter().map(|m|
+        m.borrow().typ.as_ref().unwrap().2.borrow().name.clone()
+    ).collect()).collect();
+    let html = format!("{}\n\n{:?}", html, components);
+
+
     let next = Meta::next(meta)
         .next
         .map(|m| m.meta.borrow() as *const Meta as usize);
@@ -324,4 +334,59 @@ pub fn involved(mvar: W<Meta>) -> Vec<W<Meta>> {
         result.extend(constraint.involved())
     }
     return result;
+}
+
+fn collect_unassigned(meta: W<Meta>, out: &mut Vec<W<Meta>>) {
+    match &meta.borrow().assignment {
+        None => out.push(meta.clone()),
+        Some(assignment) => {
+            for arg in assignment.args.iter() {
+                collect_unassigned(arg.downgrade(), out);
+            }
+        }
+    }
+}
+
+
+fn split(root: W<Meta>) -> Vec<Vec<W<Meta>>> {
+    let mut unassigned = Vec::new();
+    collect_unassigned(root, &mut unassigned);
+
+    let mut indices = HashMap::new();
+    for (i, x) in unassigned.iter().enumerate() {
+        indices.insert(x.clone(), i);
+    }
+
+    let mut involvedInverse: HashMap<W<Meta>, Vec<W<Meta>>> = HashMap::new();
+    for mvar in unassigned.iter() {
+        for i in involved(mvar.clone()).iter() {
+            if !involvedInverse.contains_key(&i) {
+                involvedInverse.insert(i.clone(), Vec::new());
+            }
+            let arr = involvedInverse.get_mut(i).unwrap();
+            if arr.last() != Some(mvar) {
+                arr.push(mvar.clone());
+            }
+        }
+    }
+
+    let mut uf = QuickUnionUf::<UnionBySize>::new(unassigned.len());
+    for (i, mvar) in unassigned.iter().enumerate() {
+        let mut parent = Some(mvar);
+        while let Some(p) = parent {
+            if let Some(arr) = involvedInverse.get(p) {
+                for o in arr {
+                    uf.union(i, *indices.get(o).unwrap());
+                }
+            }
+            parent = p.borrow().parent.as_ref().clone();
+        }
+    }
+
+    let mut buckets: std::collections::HashMap<usize, Vec<W<Meta>>> = std::collections::HashMap::new();
+    for (i, mvar) in unassigned.iter().enumerate() {
+        let r = uf.find(i);
+        buckets.entry(r).or_default().push(mvar.clone());
+    }
+    buckets.into_values().collect()
 }
