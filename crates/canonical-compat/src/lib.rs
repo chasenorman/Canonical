@@ -9,6 +9,7 @@ pub mod ai;
 use ir::*;
 use std::time::SystemTime;
 use std::fs;
+use std::collections::HashMap;
 use canonical_core::search::RUN;
 use std::sync::atomic::Ordering;
 use std::sync::atomic::AtomicU32;
@@ -165,7 +166,9 @@ pub static LIMIT: AtomicU32 = AtomicU32::new(10000000);
 
 pub fn compare(inference: Inference, prefix: String) -> (DFSResult, DFSResult) {
     let irt = inference.problem;
-    let tb = S::new(irt.to_type(&ES::new()));
+    let mut binds = HashMap::new();
+    let mut tokens = Vec::new();
+    let tb = S::new(irt.to_type(&ES::new(), &[Position::Type], &mut binds, &mut tokens));
     let problem_bind = S::new(Bind::new(prefix));
     let mut owned_linked = Vec::new();
     LIMIT.store(10000000, Ordering::Release);

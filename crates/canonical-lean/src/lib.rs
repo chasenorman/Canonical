@@ -526,7 +526,9 @@ pub unsafe extern "C" fn canonical(typ: *const LeanType, name: *const LeanString
 
         let arc : Arc<Mutex<_>> = Arc::new(Mutex::new(Vec::new()));
         let arc_clone = arc.clone();
-        let tb = S::new(ir_type.to_type(&ES::new()));
+        let mut binds = HashMap::new();
+        let mut tokens = Vec::new();
+        let tb = S::new(ir_type.to_type(&ES::new(), &[Position::Type], &mut binds, &mut tokens));
         let problem_bind = S::new(Bind::new(to_string(name)));
         let mut owned_linked = Vec::new();
         let prover = Prover::new(tb.downgrade(), problem_bind.downgrade(), &mut owned_linked, None);
@@ -581,7 +583,9 @@ pub unsafe extern "C" fn cancel() -> *const LeanResult {
 pub unsafe extern "C" fn refine(typ: *const LeanType) -> *const LeanResult {
     to_lean_result(None, || {
         let ir_type = to_ir_type(typ);
-        let tb_ref = S::new(ir_type.to_type(&ES::new()));
+        let mut binds = HashMap::new();
+        let mut tokens = Vec::new();
+        let tb_ref = S::new(ir_type.to_type(&ES::new(), &[Position::Type], &mut binds, &mut tokens));
         let problem_bind = S::new(Bind::new("proof".to_string())); // must be stored
         let mut owned_linked = Vec::new();
         let prover = Prover::new(tb_ref.downgrade(), problem_bind.downgrade(), &mut owned_linked, None);
