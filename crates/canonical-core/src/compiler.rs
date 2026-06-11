@@ -24,6 +24,11 @@ impl CompilationInfo {
 pub static COMPILATION: Lazy<ArcSwap<HashMap<(usize, usize), Vec<(Index, CompilationInfo)>>>> = Lazy::new(|| ArcSwap::from_pointee(HashMap::default()));
 pub static COMPILATION_STRING: Lazy<ArcSwap<HashMap<String, Vec<String>>>> = Lazy::new(|| ArcSwap::from_pointee(HashMap::default()));
 
+/// The names of the binds at goal polarity in the most recently compiled problem.
+pub static GOALS: Lazy<ArcSwap<Vec<String>>> = Lazy::new(|| ArcSwap::from_pointee(Vec::new()));
+/// The names of the binds at premise polarity in the most recently compiled problem.
+pub static PREMISES: Lazy<ArcSwap<Vec<String>>> = Lazy::new(|| ArcSwap::from_pointee(Vec::new()));
+
 #[derive(Clone, Copy)]
 enum Polarity { Goal, Premise }
 
@@ -72,6 +77,8 @@ pub fn compile(typ: Type, unifications_answer: Option<std::collections::HashMap<
     let mut owned_metas = Vec::new();
     get_compilation_info(typ, &mut goals, Polarity::Goal, &mut owned_linked, &mut owned_metas);
     // println!("{:?}", goals.iter().map(|(typ, children)| typ.2.name).collect::<Vec<_>>());
+    GOALS.store(Arc::new(goals.iter().map(|g| g.0.2.borrow().name.clone()).collect()));
+    PREMISES.store(Arc::new(goals.iter().flat_map(|g| g.1.iter().map(|p| p.0.2.borrow().name.clone())).collect()));
     let mut compilation = HashMap::default();
     let mut compilation_string = HashMap::default();
     // let mut count: u32 = 0;

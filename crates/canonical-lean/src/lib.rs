@@ -5,7 +5,7 @@ use canonical_compat::ai::Example;
 use canonical_core::core::*;
 use canonical_core::prover::*;
 use canonical_core::search::*;
-use canonical_core::memory::{S, W};
+use canonical_core::memory::W;
 use std::thread;
 use std::time::Duration;
 use std::sync::atomic::Ordering;
@@ -528,8 +528,7 @@ pub unsafe extern "C" fn canonical(typ: *const LeanType, name: *const LeanString
         let arc_clone = arc.clone();
         let mut binds = HashMap::new();
         let mut tokens = Vec::new();
-        let tb = S::new(ir_type.to_type(&ES::new(), &[Position::Type], &mut binds, &mut tokens));
-        let problem_bind = S::new(Bind::new(to_string(name)));
+        let (tb, problem_bind) = ir_type.to_problem(to_string(name), &mut binds, &mut tokens);
         let mut owned_linked = Vec::new();
         let prover = Prover::new(tb.downgrade(), problem_bind.downgrade(), &mut owned_linked, None);
 
@@ -543,10 +542,8 @@ pub unsafe extern "C" fn canonical(typ: *const LeanType, name: *const LeanString
             Ok((result, last_level_steps)) => {
                 let v = arc.lock().unwrap();
                 if result.steps > 100000 && !v.is_empty() {
-                    Example {
-                        problem: ir_type,
-                        unifications: v[0].1.clone()
-                    }.save("Results/".to_string() + &to_string(name) + ".bin");
+                    Example::new(to_string(name), ir_type, v[0].1.clone(), &binds, tokens)
+                        .save("Results/".to_string() + &to_string(name) + ".bin");
                 }
 
                 let terms = to_lean_array(&v.iter().map(|x| to_lean_term(&x.0) as *const LeanObject).collect());
@@ -585,8 +582,8 @@ pub unsafe extern "C" fn refine(typ: *const LeanType) -> *const LeanResult {
         let ir_type = to_ir_type(typ);
         let mut binds = HashMap::new();
         let mut tokens = Vec::new();
-        let tb_ref = S::new(ir_type.to_type(&ES::new(), &[Position::Type], &mut binds, &mut tokens));
-        let problem_bind = S::new(Bind::new("proof".to_string())); // must be stored
+        // The problem bind must be stored.
+        let (tb_ref, problem_bind) = ir_type.to_problem("proof".to_string(), &mut binds, &mut tokens);
         let mut owned_linked = Vec::new();
         let prover = Prover::new(tb_ref.downgrade(), problem_bind.downgrade(), &mut owned_linked, None);
 

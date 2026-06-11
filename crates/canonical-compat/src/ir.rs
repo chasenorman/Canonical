@@ -322,6 +322,15 @@ impl IRTerm {
 }
 
 impl IRType {
+    /// Translate the root declaration of a problem, named `name` and declared at the empty path:
+    /// create its `Bind` and translate this type as its `Type`.
+    pub fn to_problem(&self, name: String, binds: &mut HashMap<W<Bind>, Vec<Position>>, tokens: &mut Vec<Token>) -> (S<TypeBase>, S<Bind>) {
+        let problem_bind = S::new(Bind::new(name));
+        binds.insert(problem_bind.downgrade(), Vec::new());
+        let tb = S::new(self.to_type(&ES::new(), &[Position::Type], binds, tokens));
+        (tb, problem_bind)
+    }
+
     /// `position` is the path of this type expression, so the root caller passes `[Position::Type]`.
     pub fn to_type(&self, es: &ES,
             position: &[Position], binds: &mut HashMap<W<Bind>, Vec<Position>>, tokens: &mut Vec<Token>) -> TypeBase {

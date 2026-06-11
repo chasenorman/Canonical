@@ -88,7 +88,7 @@ fn get_children(builds: &Vec<(&mut Build, &IRSpine, ES, Vec<Position>)>) -> Vec<
 }
 
 fn get_bindings(build: &mut Build, term: &IRSpine, es: ES, position: &[Position],
-        binds: &mut HashMap<W<Bind>, Vec<Position>>, tokens: &mut Vec<Token>) -> S<Indexed<S<Bind>>> {
+        binds: &mut HashMap<W<Bind>, Vec<Position>>, _tokens: &mut Vec<Token>) -> S<Indexed<S<Bind>>> {
     let mut params: Vec<S<Bind>> = Vec::new();
     let mut found = false;
 
