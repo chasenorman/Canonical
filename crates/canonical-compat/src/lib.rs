@@ -1,14 +1,16 @@
 use canonical_core::core::*;
-use canonical_core::stats::*;
-use canonical_core::prover::Prover;
 use canonical_core::memory::S;
-use crate::ai::Example;
+use canonical_core::search::EXPERIMENT;
+use std::sync::atomic::Ordering;
 pub mod ir;
 pub mod refine;
 pub mod reduction;
 pub mod ai;
+pub mod ab;
 use ir::*;
 use std::time::SystemTime;
+use canonical_core::stats::STEP_COUNT;
+use canonical_core::prover::Prover;
 
 /// Manually construct a IRTerm body.
 #[allow(unused_macros)]
@@ -129,13 +131,18 @@ macro_rules! P {
     };
 }
 
-/// Entrypoint for CLI, which reads a problem from a json file. 
-/// You can create a json file using the `+debug` tactic option.
+// Entrypoint for CLI: A/B test the `EXPERIMENT` flag on random examples from `Results/`.
+// Usage: `canonical-compat [count] [seed]` (defaults: 30 examples, time-based seed).
+// #[tokio::main]
+// pub async fn main() {
+//     let count = std::env::args().nth(1).and_then(|arg| arg.parse().ok()).unwrap_or(30);
+//     let seed = std::env::args().nth(2).and_then(|arg| arg.parse().ok());
+//     ab::ab_test(count, seed, |enabled| EXPERIMENT.store(enabled, Ordering::Release));
+// }
+
 #[tokio::main]
 pub async fn main() {
-    // let irt = IRType::load("lean/debug.json".to_string());
-    let str = "Results/Absorbent.eq_univ_of_smulMemClass_372.bin";
-    let irt = Example::load(str.to_string()).problem;
+    let irt = IRType::load("lean/debug.json".to_string());
     let tb = S::new(irt.to_type(&ES::new(), Polarity::Goal).0);
     let problem_bind = S::new(Bind::new("proof".to_string(), Polarity::Goal));
     let mut owned_linked = Vec::new();

@@ -12,6 +12,9 @@ use std::thread::ThreadId;
 /// Tracks the number of DFS node visits performed, for debugging.
 pub static STEP_COUNT: AtomicU32 = AtomicU32::new(0);
 
+/// Cancel the search once `STEP_COUNT` exceeds this limit.
+pub static LIMIT: AtomicU32 = AtomicU32::new(u32::MAX);
+
 /// Global map from metavariable bucket to `MetaStats`. 
 pub static META_MAP: Lazy<ArcSwap<HashMap<usize, MetaStats>>> = Lazy::new(|| ArcSwap::from_pointee(HashMap::default()));
 pub static META_CONTROL: Lazy<Control<HashMap<usize, MetaStats>, HashMap<usize, MetaStats>>> = 
@@ -227,6 +230,7 @@ impl AssignmentStats {
 pub fn reset() {
     // If we are not careful to only keep one instance of Canonical running, the following line may hang.
     RUN.store(true, Ordering::Release);
+    STEP_COUNT.store(0, Ordering::Release);
     META_CONTROL.take_tls();
     META_CONTROL.take_acc(HashMap::default());
     META_MAP.store(Arc::new(HashMap::default()));

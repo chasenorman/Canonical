@@ -3,9 +3,14 @@ use crate::heuristic::*;
 use crate::memory::{S, W, WVec};
 use crate::stats::*;
 use std::sync::atomic::AtomicBool;
+use std::cmp::Ordering;
 
-/// Set `RUN` to false to cancel terminate the ongoing problem. 
+/// Set `RUN` to false to cancel terminate the ongoing problem.
 pub static RUN: AtomicBool = AtomicBool::new(true);
+
+/// Generic flag for A/B testing: gate the experimental behavior on this, and the
+/// harness in canonical-compat will run with it off (A) and on (B).
+pub static EXPERIMENT: AtomicBool = AtomicBool::new(false);
 
 /// Results from a DFS subtree. 
 pub struct DFSResult {
@@ -103,6 +108,12 @@ impl Next {
     }
 }
 
+pub struct NextNew {
+    pub next: MetaInfo,
+    pub index: usize,
+    pub entropy: f64
+}
+
 impl Meta {
     /// Traverse the partial term, to obtain the entropy and next metavariable.
     pub fn next(mut meta: W<Meta>) -> Next {
@@ -124,6 +135,37 @@ impl Meta {
                 acc.assigned_entropy(meta.borrow().branching, tax)
             }
         }
+    }
+
+    pub fn mark_completed(mut meta: W<Meta>) -> bool {
+        match &meta.borrow().assignment {
+            None => { false }
+            Some(Assignment { args, .. }) => {
+                // The entropy of an assignment is the branching factor, with added tax.
+                let acc = args.iter().all(|meta| Meta::mark_completed(meta.downgrade()));
+                meta.borrow_mut().stats_buffer.dfs_completed = acc;
+                acc
+            }
+        }
+    }
+
+    
+
+    pub fn next_new(unassigned: &Vec<W<Meta>>) -> NextNew {
+        let mut result = MetaInfo::new(unassigned.first().unwrap().clone());
+        let mut index = 0;
+        let mut entropy = 1.0;
+
+        for (i, mvar) in unassigned.iter().enumerate() {
+            let contender = MetaInfo::new(mvar.clone());
+            entropy = entropy*contender.difficulty();
+            if matches!(next_new(&result, &contender), Ordering::Greater)  {
+                result = contender;
+                index = i;
+            }
+        }
+
+        return NextNew { next: result, index, entropy }
     }
 }
 

@@ -1,5 +1,7 @@
 use crate::search::Next;
 use crate::stats::*;
+use crate::search::EXPERIMENT;
+use std::cmp::Ordering::{self, Less};
 
 /// Smoothly transitions between `prior` and `a / b` as `b` increases to `breakpoint`.
 pub fn div(a: f64, b: f64, prior: f64, breakpoint: f64) -> f64 {
@@ -25,6 +27,24 @@ pub fn next(first: MetaInfo, second: MetaInfo) -> MetaInfo {
 
     // Select the later metavariable, so unification can propagate backwards.
     second
+}
+
+/// Selects which metavariable to refine between two options.
+pub fn next_new(first: &MetaInfo, second: &MetaInfo) -> Ordering {
+    // Rigid equations are a strict unification constraint, analogous to unit propagation.
+    if second.has_rigid_equation { return Ordering::Greater }
+    if first.has_rigid_equation { return Ordering::Less }
+
+    // The metavariable has over a 50% chance to result in failure of the branch. 
+    if div(second.current_stats.failures as f64, second.current_stats.attempts as f64, 0.0, 25.0) > 0.5 { return Ordering::Greater }
+    if div(first.current_stats.failures as f64, first.current_stats.attempts as f64, 0.0, 25.0) > 0.5 { return Ordering::Less } 
+
+    // One metavariable is significantly more difficult than the other. 
+    if second.difficulty() > 3.0 && second.difficulty() > first.difficulty() + 1.0 { return Ordering::Greater }
+    if first.difficulty() > 3.0 && first.difficulty() > second.difficulty() + 1.0 { return Ordering::Less }
+
+    // Select the later metavariable, so unification can propagate backwards.
+    Ordering::Greater
 }
 
 impl MetaInfo {

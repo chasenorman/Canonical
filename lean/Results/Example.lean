@@ -42,7 +42,7 @@ theorem Eq.trans' {a b c : α} (h₁ : Eq a b) (h₂ : Eq b c) : Eq a c :=
 -- set_option pp.all true
 theorem sSup_inter_le' {α : Type} [CompleteLattice α] {s t : Set α}
   : sSup (s ∩ t) ≤ sSup s ⊓ sSup t :=
-  by canonical [sSup_le, le_sSup, le_inf, And]
+  by canonical [sSup_le, les_sSup, le_inf, And]
 
 
 -- class Group' (α : Type u) extends Semigroup α, Inv α where
