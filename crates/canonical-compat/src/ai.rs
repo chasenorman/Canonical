@@ -4,9 +4,34 @@ use crate::ir::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
+pub enum Position {
+    Type,
+    Rule(usize),
+    LHS,
+    RHS,
+    Param(usize),
+    Let(usize),
+    Arg(usize),
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Token {
+    pub position: Vec<Position>,
+    pub declaration: Vec<Position>,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct Example {
+    /// The top-level name of the problem.
+    pub name: String,
     pub problem: IRType,
-    pub unifications: HashMap<String, HashMap<String, u32>>
+    pub unifications: HashMap<String, HashMap<String, u32>>,
+    pub tokens: Vec<Token>,
+    pub binds: HashMap<String, Vec<Position>>,
+    /// The names of the binds at goal polarity: the outer keys of `unifications`.
+    pub goals: Vec<String>,
+    /// The names of the binds at premise polarity: the inner keys of `unifications`.
+    pub premises: Vec<String>
 }
 
 impl Example {

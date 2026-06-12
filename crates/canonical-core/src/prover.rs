@@ -102,7 +102,7 @@ impl Prover {
         next.meta.borrow_mut().stats_buffer.lifetime_attempts += 1;
 
         // STEP_COUNT.fetch_add(1, Ordering::Relaxed);
-        
+
         let mut options = Vec::new();
         let mut total_weight = 0.0;
         let mut attempts = 0;

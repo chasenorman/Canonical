@@ -2,6 +2,7 @@ use canonical_core::core::*;
 use canonical_core::stats::*;
 use canonical_core::prover::Prover;
 use canonical_core::memory::S;
+use crate::ai::Example;
 pub mod ir;
 pub mod refine;
 pub mod reduction;
@@ -132,7 +133,9 @@ macro_rules! P {
 /// You can create a json file using the `+debug` tactic option.
 #[tokio::main]
 pub async fn main() {
-    let irt = IRType::load("lean/debug.json".to_string());
+    // let irt = IRType::load("lean/debug.json".to_string());
+    let str = "Results/Absorbent.eq_univ_of_smulMemClass_372.bin";
+    let irt = Example::load(str.to_string()).problem;
     let tb = S::new(irt.to_type(&ES::new(), Polarity::Goal).0);
     let problem_bind = S::new(Bind::new("proof".to_string(), Polarity::Goal));
     let mut owned_linked = Vec::new();

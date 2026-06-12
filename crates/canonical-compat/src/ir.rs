@@ -13,7 +13,7 @@ use std::any::Any;
 /// Render the metavariables involved with `meta`, each labeled with its name and the constraints stuck on it.
 fn involved_html(meta: W<Meta>) -> String {
     let mut seen = HashSet::new();
-    crate::refine::involved(meta).into_iter()
+    canonical_core::independence::involved(meta).into_iter()
         .filter(|m| seen.insert(m.borrow() as *const Meta as usize))
         .map(|m| {
             // Argument/substitution metavariables have no type (see `to_body`), so don't assume one.

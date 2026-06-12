@@ -6,3 +6,4 @@ pub mod memory;
 pub mod stats;
 pub mod prover;
 pub mod compiler;
+pub mod independence;
