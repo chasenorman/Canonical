@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::thread;
 use std::time::Duration;
 use std::mem;
+use canonical_core::independence::collect_unassigned;
 
 /// HTML for the refinement interface.
 const HTML: &str = include_str!("../static/index.html");
@@ -103,7 +104,9 @@ async fn term(State(state): State<Arc<Mutex<AppState>>>) -> Json<serde_json::Val
     let term = IRSpine::from_body::<false>(Term { base: meta.clone(), es: meta.borrow().gamma.clone() }.whnf::<false, ()>(&mut owned_linked, &mut ()), true);
     let html = term.to_string();
 
-    let components = split(state.current.downgrade());
+    let mut unassigned = Vec::new();
+    collect_unassigned(state.current.downgrade(), &mut unassigned);
+    let components = split(unassigned);
     let components : Vec<Vec<String>> = components.iter().map(|v| v.iter().map(|m|
         m.borrow().typ.as_ref().unwrap().2.borrow().name.clone()
     ).collect()).collect();

@@ -157,6 +157,26 @@ impl Meta {
         }
         self.assignment = None;
     }
+
+    pub fn pop_recursive(&mut self) {
+        if let Some(assn) = &mut self.assignment {
+            for mvar in assn.args.iter_mut() {
+                mvar.borrow_mut().pop_recursive();
+            }
+            for meta in assn.changes.iter_mut() {
+                meta.borrow_mut().constraints.pop();
+            }
+        }
+    }
+
+    pub fn unassign_recursive(&mut self) {
+        if let Some(assn) = &mut self.assignment {
+            for mvar in assn.args.iter_mut() {
+                mvar.borrow_mut().unassign_recursive();
+            }
+            self.assignment = None;
+        }
+    }
 }
 
 pub trait Constraint: std::any::Any {

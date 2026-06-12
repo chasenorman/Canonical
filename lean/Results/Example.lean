@@ -17,12 +17,12 @@ theorem Cantor (f : X → Set X) : ¬Surjective f :=
   by canonical [false_of_a_eq_not_a, congrFun]
 
 
--- inductive Vec (A : Type) : Nat → Type u where
--- | vnil  : Vec A 0
--- | vcons : A → {n : Nat} → Vec A n → Vec A (n+1)
+inductive Vec (A : Type) : Nat → Type u where
+| vnil  : Vec A 0
+| vcons : A → {n : Nat} → Vec A n → Vec A (n+1)
 
--- noncomputable def append : Vec α n → Vec α m → Vec α (m + n) :=
---   by canonical
+noncomputable def append : Vec α n → Vec α m → Vec α (m + n) :=
+  by canonical
 
 
 theorem Eq.trans' {a b c : α} (h₁ : Eq a b) (h₂ : Eq b c) : Eq a c :=
@@ -42,7 +42,7 @@ theorem Eq.trans' {a b c : α} (h₁ : Eq a b) (h₂ : Eq b c) : Eq a c :=
 -- set_option pp.all true
 theorem sSup_inter_le' {α : Type} [CompleteLattice α] {s t : Set α}
   : sSup (s ∩ t) ≤ sSup s ⊓ sSup t :=
-  by canonical [sSup_le, les_sSup, le_inf, And]
+  by canonical [sSup_le, le_sSup, le_inf, And]
 
 
 -- class Group' (α : Type u) extends Semigroup α, Inv α where

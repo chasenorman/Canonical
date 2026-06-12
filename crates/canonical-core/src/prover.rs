@@ -7,6 +7,7 @@ use rayon::prelude::*;
 use std::sync::atomic::{Ordering, AtomicUsize};
 use std::sync::Arc;
 use rustc_hash::FxHashMap as HashMap;
+use crate::independence::split;
 
 /// The number of Rayon jobs yet to be completed.
 pub static NUM_JOBS: AtomicUsize = AtomicUsize::new(0);
@@ -48,14 +49,12 @@ impl Prover {
         let mut depth = 1e4;
         let mut previous_steps = 0;
         let mut acc = DFSResult { unknown_count: 0, steps: 0, entropy: 1.0, solution_count: 0, attempts: 0, branching: 0 };
-        
+        let unassigned = vec![self.meta.downgrade()];
         // Iterative deepening. 
         while RUN.load(Ordering::Relaxed) {
             let max_size = ((depth as f32).ln_1p()*4.0) as u32;
             if verbose { println!("entropy (log): {}", (depth as f32).ln_1p()); }
-            let mut unassigned = Vec::new();
-            unassigned.push(self.meta.downgrade());
-            let (result, success) = self.dfs(unassigned, depth, max_size);
+            let (result, success) = self.dfs(&unassigned, depth, max_size);
             if success {
                 callback(self.get_term());
             }
@@ -79,7 +78,7 @@ impl Prover {
         (acc, previous_steps)
     }
 
-    pub fn dfs(&self, unassigned: Vec<W<Meta>>, entropy: f64, max_size: u32) -> (DFSResult, bool) {
+    pub fn dfs(&self, unassigned: &Vec<W<Meta>>, entropy: f64, max_size: u32) -> (DFSResult, bool) {
         guard_overflow();
         if !RUN.load(Ordering::Relaxed) {
             // The task has been cancelled. 
@@ -87,7 +86,7 @@ impl Prover {
         }
 
         Meta::mark_completed(self.next_root.clone());
-        let next_result = Meta::next_new(&unassigned);
+        let next_result = Meta::next_new(unassigned);
         let mut next = next_result.next;
         if next_result.entropy > entropy || max_size == 0 {
             return (DFSResult { unknown_count: 1, steps: 0, entropy: 1.0, solution_count: 0, attempts: 0, branching: 0 }, false);
@@ -117,31 +116,56 @@ impl Prover {
         let branching = options.len();
         next.meta.borrow_mut().stats_buffer.dfs_steps = options.len() as f64;
 
+        let mut total = DFSResult { unknown_count: 0, steps: 1, entropy: next_result.entropy, solution_count: 0, branching, attempts };
+        
         let mut results = Vec::new();
         let mut iter = options.into_iter();
 
-        while let Some((assignment, constraints, info)) = iter.next() {
+        'outer: while let Some((assignment, constraints, info)) = iter.next() {
+            let meta = next.meta.borrow_mut();
 
             let (beginning, end) = unassigned.split_at(next_result.index);
             let args: Vec<W<Meta>> = assignment.args.iter().map(|x| x.downgrade()).collect();
-            let unassigned = [beginning, &args, &end[1..]].concat();
-
-            let meta = next.meta.borrow_mut();
 
             meta.assign(assignment, constraints);
-
-            if unassigned.len() == 0 {
-                return (DFSResult { unknown_count: 0, steps: 0, entropy: 1.0, solution_count: 1, attempts: 0, branching: 0 }, true);
-            }
-
-            // Start assignment statistics.
             meta.stats.assignment_fence();
             meta.stats_buffer.assignment_fence();
-
             meta.branching = total_weight / info.weight();
-            let result = self.dfs(unassigned, entropy * info.weight() / total_weight , max_size - 1);
-            if result.1 {
-                return result // not accumulating other DFSResults
+
+            let unassigned = [beginning, &args, &end[1..]].concat();
+            let mut components = split(unassigned);
+
+
+            // if components.len() == 0 {
+            //     return (DFSResult { unknown_count: 0, steps: 0, entropy: 1.0, solution_count: 1, attempts: 0, branching: 0 }, true);
+            // }
+
+            // Start assignment statistics.
+            let mut result = DFSResult { unknown_count: 0, steps: 0, entropy: next_result.entropy, solution_count: 0, branching, attempts };
+            let mut success = true;
+            for (idx, component) in components.iter().enumerate() {
+                let (component_result, component_success) = self.dfs(component, entropy * info.weight() / total_weight , max_size - 1);
+                result.add(component_result);
+                if !component_success {
+                    success = false;
+                    break;
+                }
+            }
+            total.add(result.clone());
+
+            
+            if success {
+                return (total, true) // not accumulating other DFSResults
+            } else {
+                // unassign failures
+                for component in components.iter_mut() {
+                    for mvar in component.iter_mut() {
+                        mvar.borrow_mut().pop_recursive();
+                    }
+                    for mvar in component.iter_mut() {
+                        mvar.borrow_mut().unassign_recursive();
+                    }
+                }
             }
             
             // The steps spent on this metavariable 
@@ -158,17 +182,15 @@ impl Prover {
                                         || next.meta.borrow().stats_buffer.assignment_completed));
         }
 
-        let mut acc = DFSResult { unknown_count: 0, steps: 1, entropy: next_result.entropy, solution_count: 0, branching, attempts };
         let mut weighted_entropy_gain = 0.0;
         let mut max_steps = 0;
-        for ((result, success), info, assignment_completed) in results {
+        for (result, info, assignment_completed) in results {
             info.log(&result, assignment_completed, next.meta.borrow().stats.dfs_completed 
                                                                                   || next.meta.borrow().stats_buffer.dfs_completed);
             weighted_entropy_gain += (result.entropy / next_result.entropy) * (result.steps as f64);
             if result.steps > max_steps { max_steps = result.steps }
-            acc.add(result);
         }
-        let effective_branching_factor = if max_steps == 0 { 1.0 } else { acc.steps as f64 / max_steps as f64 };
+        let effective_branching_factor = if max_steps == 0 { 1.0 } else { total.steps as f64 / max_steps as f64 };
 
         next.meta.borrow_mut().stats_buffer.lifetime_steps += next.meta.borrow().stats_buffer.dfs_steps + next.meta.borrow().stats.dfs_steps;
         let mut stats = next.meta.borrow().stats.clone();
@@ -178,8 +200,8 @@ impl Prover {
         next.meta.borrow_mut().stats.dfs_fence();
         next.meta.borrow_mut().stats_buffer.dfs_fence();
 
-        next.log(&acc, weighted_entropy_gain / (acc.steps as f64 * effective_branching_factor), &stats);
-        (acc, false)
+        next.log(&total, weighted_entropy_gain / (total.steps as f64 * effective_branching_factor), &stats);
+        (total, false)
     }
 
     /// Parallelized DFS, up to an entropy of `max_entropy` and term size of `max_size`. Solutions are passed to the `callback`.

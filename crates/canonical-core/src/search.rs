@@ -13,6 +13,7 @@ pub static RUN: AtomicBool = AtomicBool::new(true);
 pub static EXPERIMENT: AtomicBool = AtomicBool::new(false);
 
 /// Results from a DFS subtree. 
+#[derive(Clone)]
 pub struct DFSResult {
     pub unknown_count: u32,
     pub solution_count: u32,

@@ -15,7 +15,7 @@ pub fn involved(mvar: W<Meta>) -> Vec<W<Meta>> {
 }
 
 /// Collect the unassigned metavariables in the subtree of `meta` into `out`.
-fn collect_unassigned(meta: W<Meta>, out: &mut Vec<W<Meta>>) {
+pub fn collect_unassigned(meta: W<Meta>, out: &mut Vec<W<Meta>>) {
     match &meta.borrow().assignment {
         None => out.push(meta.clone()),
         Some(assignment) => {
@@ -27,10 +27,7 @@ fn collect_unassigned(meta: W<Meta>, out: &mut Vec<W<Meta>>) {
 }
 
 /// Partition the unassigned metavariables under `root` into independent components.
-pub fn split(root: W<Meta>) -> Vec<Vec<W<Meta>>> {
-    let mut unassigned = Vec::new();
-    collect_unassigned(root, &mut unassigned);
-
+pub fn split(unassigned: Vec<W<Meta>>) -> Vec<Vec<W<Meta>>> {
     let mut indices = HashMap::new();
     for (i, x) in unassigned.iter().enumerate() {
         indices.insert(x.clone(), i);
