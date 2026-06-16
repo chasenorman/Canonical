@@ -12,6 +12,7 @@ use canonical_core::search::*;
 use canonical_core::independence::split;
 use serde::Deserialize;
 use serde_json::json;
+use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
@@ -107,11 +108,13 @@ async fn term(State(state): State<Arc<Mutex<AppState>>>) -> Json<serde_json::Val
     let mut unassigned = Vec::new();
     collect_unassigned(state.current.downgrade(), &mut unassigned);
     let components = split(unassigned);
-    let components : Vec<Vec<String>> = components.iter().map(|v| v.iter().map(|m|
-        m.borrow().typ.as_ref().unwrap().2.borrow().name.clone()
-    ).collect()).collect();
-    let html = format!("{}\n\n{:?}", html, components);
-
+    let mut component_by_meta = HashMap::new();
+    for (component_index, component) in components.iter().enumerate() {
+        for meta in component {
+            let meta_id = meta.borrow() as *const Meta as usize;
+            component_by_meta.insert(meta_id.to_string(), component_index);
+        }
+    }
 
     let next = Meta::next(meta)
         .next
@@ -123,7 +126,8 @@ async fn term(State(state): State<Arc<Mutex<AppState>>>) -> Json<serde_json::Val
         "undo": !state.undo.is_empty(),
         "redo": !state.redo.is_empty(),
         "autofill": state.autofill,
-        "constraints": state.constraints
+        "constraints": state.constraints,
+        "components": component_by_meta
     }));
 }
 
@@ -327,4 +331,3 @@ async fn set(State(state): State<Arc<Mutex<AppState>>>, Json(kv) : Json<KV>) -> 
     }
     Json(json!({}))
 }
-

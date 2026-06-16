@@ -40,7 +40,7 @@
         } */
 
         .meta {
-            background-color: var(--metaBackground);
+            background-color: var(--componentBackground, var(--metaBackground));
             color: var(--metaText);
             border-radius: 3.5px;
             padding: 2px 2px 2px 2px;
@@ -225,6 +225,16 @@
         var radios = [];
         var index = null;
 
+        // Palette for coloring unassigned mvars by connected component.
+        const componentColors = [
+            "rgb(255, 214, 214)",  // red
+            "rgb(214, 234, 255)",  // blue
+            "rgb(214, 255, 220)",  // green
+            "rgb(255, 240, 200)",  // yellow
+            "rgb(235, 214, 255)",  // purple
+            "rgb(255, 224, 196)",  // orange
+        ];
+
         function removeSelected() {
             document.querySelectorAll('.option').forEach((o, _) => {
                 o.classList.remove('selected')
@@ -238,6 +248,23 @@
             if (data.next) {
                 document.getElementById(data.next.toString()).checked = true;
             }
+
+            // Color unassigned metavariables by connected component.
+            if (data.components) {
+                for (const [metaId, componentIndex] of Object.entries(data.components)) {
+                    const input = document.getElementById(metaId);
+                    if (!input) continue;
+                    const tooltip = input.nextElementSibling;
+                    const span = tooltip ? tooltip.querySelector('.meta') : null;
+                    if (span) {
+                        span.style.setProperty(
+                            '--componentBackground',
+                            componentColors[componentIndex % componentColors.length]
+                        );
+                    }
+                }
+            }
+
             document.getElementById("done").style.display = (data.next === null) ? 'block' : 'none';
             document.getElementById("undo").disabled = !data.undo;
             document.getElementById("redo").disabled = !data.redo;
