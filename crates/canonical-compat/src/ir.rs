@@ -25,14 +25,8 @@ fn constraint_html(c: &dyn Constraint, owned_linked: &mut Vec<S<Linked>>) -> Str
     }
 }
 
-/// A variable with a `name`, and whether it is proof `irrelevant` (unused).
-#[derive(PartialEq, Eq, Serialize, Deserialize, Clone)]
-pub struct IRVar {
-    pub name: String
-}
-
 #[derive(PartialEq, Eq, Serialize, Deserialize)]
-pub struct IRRule {
+pub struct IREquation {
     pub lhs: IRSpine,
     pub rhs: IRSpine,
     #[serde(skip)]
@@ -42,9 +36,9 @@ pub struct IRRule {
 
 /// A let declaration, with a variable and value. -/
 #[derive(PartialEq, Eq, Serialize, Deserialize)]
-pub struct IRLet {
-    pub var: IRVar,
-    pub rules: Vec<IRRule>
+pub struct IRDecl {
+    pub name: String,
+    pub equations: Vec<IREquation>
 }
 
 #[derive(PartialEq, Eq, Serialize, Deserialize)]
@@ -59,8 +53,8 @@ pub struct IRSpine {
 /// `λ params lets . head args`
 #[derive(PartialEq, Eq, Serialize, Deserialize)]
 pub struct IRTerm {
-    pub params: Vec<IRVar>,
-    pub lets: Vec<IRLet>,
+    pub params: Vec<IRDecl>,
+    pub lets: Vec<IRDecl>,
     pub spine: IRSpine,
     #[serde(skip)]
     pub goal_rules: Vec<String>
@@ -74,7 +68,7 @@ pub struct IRType {
     pub codomain: IRTerm,
 }
 
-impl IRVar {
+impl IRDecl {
     pub fn to_bind(&self) -> Bind {
         Bind {
             name: self.name.clone(),
@@ -245,10 +239,10 @@ impl IRSpine {
 
 impl IRTerm {
     /// Return a version of `es` with `self.lets` and `params`.
-    pub fn extend_es(&self, es: &ES, owned_linked: &mut Vec<S<Linked>>, params: &[IRVar]) -> (ES, S<Indexed<S<Bind>>>) {
+    pub fn extend_es(&self, es: &ES, owned_linked: &mut Vec<S<Linked>>, params: &[IRDecl]) -> (ES, S<Indexed<S<Bind>>>) {
         let mut bindings = S::new(Indexed {
             params: params.iter().map(|v| S::new(v.to_bind())).collect(),
-            lets: self.lets.iter().map(|d| S::new(d.var.to_bind())).collect()
+            lets: self.lets.iter().map(|d| S::new(d.to_bind())).collect()
         });
 
         let node = Node { 
@@ -260,8 +254,8 @@ impl IRTerm {
         // Use the extended ES to resolve the values of the lets. 
         for (i, d) in self.lets.iter().enumerate() {
             let mut owned_bindings = Vec::new();
-            bindings.borrow_mut().lets[i].borrow_mut().rules = to_rules(&d.rules, &es, owned_linked, &mut owned_bindings);
-            bindings.borrow_mut().lets[i].borrow_mut().redexes = to_redexes(&d.rules, &es);
+            bindings.borrow_mut().lets[i].borrow_mut().rules = to_rules(&d.equations, &es, owned_linked, &mut owned_bindings);
+            bindings.borrow_mut().lets[i].borrow_mut().redexes = to_redexes(&d.equations, &es);
             bindings.borrow_mut().lets[i].borrow_mut().owned_bindings = owned_bindings;
         }
         (es, bindings)
@@ -275,9 +269,9 @@ impl IRTerm {
 
     pub fn from_lambda<const RULES: bool>(term: Term, bindings: W<Indexed<S<Bind>>>, html: bool) -> IRTerm {
         let mut owned_linked = Vec::new();
-        let params = bindings.borrow().params.iter().map(|b| IRVar { name: b.borrow().name.clone() }).collect();
+        let params = bindings.borrow().params.iter().map(|b| IRDecl { name: b.borrow().name.clone(), equations: Vec::new() }).collect();
         let lets = bindings.borrow().lets.iter().map(|b| 
-            IRLet { var: IRVar { name: b.borrow().name.clone() }, rules: Vec::new() }).collect();
+            IRDecl { name: b.borrow().name.clone(), equations: Vec::new() }).collect();
         let goal_rules = term.base.borrow().typ.as_ref().map(|typ| get_rules(&typ.codomain())).unwrap_or_default();
         // TODO special WHNF that does not get stuck and does not unfold definitions
         IRTerm { params, lets, spine: IRSpine::from_body::<RULES>(term.whnf::<RULES, ()>(&mut owned_linked, &mut ()), html), goal_rules }
@@ -322,7 +316,7 @@ impl fmt::Display for IRTerm {
                 write!(f, " {}", v.name)?;
             }
             for d in &self.lets {
-                write!(f, ", {} := {:?}", d.var.name, d.rules)?;
+                write!(f, ", {} := {:?}", d.name, d.equations)?;
             }
             write!(f, " ↦ ")?;
         }
@@ -348,12 +342,12 @@ impl IRType {
         }
         
         for (typ, def) in self.lets.iter().zip(self.codomain.lets.iter()) {
-            write!(f, "({} : ", def.var.name)?;
+            write!(f, "({} : ", def.name)?;
             match &typ {
                 Some(t) => t.fmt(f, " ")?,
                 None => write!(f, "*")?
             }
-            write!(f, " := {:?}) →{}", def.rules, sep)?;
+            write!(f, " := {:?}) →{}", def.equations, sep)?;
         }
 
         write!(f, "{}", self.codomain.spine)
@@ -374,7 +368,7 @@ impl IRType {
     }
 }
 
-impl fmt::Debug for IRRule {
+impl fmt::Debug for IREquation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} ↦ {}", self.lhs, self.rhs)
     }

@@ -11,7 +11,7 @@ impl IRTerm {
     pub fn add_local(&self, es: &ES, owned_linked: &mut Vec<S<Linked>>) -> (ES, S<Indexed<S<Bind>>>) {
         let bindings = S::new(Indexed {
             params: self.params.iter().map(|v| S::new(v.to_bind())).collect(),
-            lets: self.lets.iter().map(|d| S::new(d.var.to_bind())).collect()
+            lets: self.lets.iter().map(|d| S::new(d.to_bind())).collect()
         });
 
         let node = Node { 
@@ -148,7 +148,7 @@ fn _to_rules(state: Vec<(&mut Build, &IRSpine, ES)>, owned_linked: &mut Vec<S<Li
     }
 }
 
-pub fn to_rules(rules: &Vec<IRRule>, es: &ES, owned_linked: &mut Vec<S<Linked>>, owned_bindings: &mut Vec<S<Indexed<S<Bind>>>>) -> Vec<Rule> {    
+pub fn to_rules(rules: &Vec<IREquation>, es: &ES, owned_linked: &mut Vec<S<Linked>>, owned_bindings: &mut Vec<S<Indexed<S<Bind>>>>) -> Vec<Rule> {    
     let mut owned: Vec<Build> = rules.iter().map(|rule|{
         let mut arguments: HashSet<String> = HashSet::new();
         // TODO ensure that params are set to Vec::new()
@@ -210,7 +210,7 @@ fn to_redex(term: &IRSpine, es: &ES, build: &mut Vec<Instruction>) {
 }
 
 
-pub fn to_redexes(rules: &Vec<IRRule>, es: &ES) -> Vec<Vec<Instruction>> {
+pub fn to_redexes(rules: &Vec<IREquation>, es: &ES) -> Vec<Vec<Instruction>> {
     rules.iter().filter_map(|rule| {
         rule.is_redex.then(|| {
             let mut build: Vec<Instruction> = Vec::new();

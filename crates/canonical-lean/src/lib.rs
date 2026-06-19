@@ -192,13 +192,14 @@ fn lean_alloc_ctor(tag: usize, num_objs: usize, scalar_sz: usize) -> *mut LeanCt
 
 type LeanVar = LeanStringObject;
 
-fn to_ir_var(v: *const LeanVar) -> IRVar {
-    IRVar {
-        name: to_string(v)
+fn to_ir_var(v: *const LeanVar) -> IRDecl {
+    IRDecl {
+        name: to_string(v),
+        equations: Vec::new()
     }
 }
 
-fn to_lean_var(v: &IRVar) -> *const LeanVar {
+fn to_lean_var(v: &IRDecl) -> *const LeanVar {
     to_lean_string(&v.name)
 }
 
@@ -211,9 +212,9 @@ pub struct LeanRule {
     is_redex: bool
 }
 
-fn to_ir_rule(r: *const LeanRule) -> IRRule {
+fn to_ir_rule(r: *const LeanRule) -> IREquation {
     unsafe {
-        IRRule {
+        IREquation {
             lhs: to_ir_spine((*r).lhs),
             rhs: to_ir_spine((*r).rhs),
             attribution: to_vec((*r).attribution).iter().map(|x| to_string(*x as *const LeanStringObject)).collect(),
@@ -222,7 +223,7 @@ fn to_ir_rule(r: *const LeanRule) -> IRRule {
     }
 }
 
-fn to_lean_rule(r: &IRRule) -> *const LeanRule {
+fn to_lean_rule(r: &IREquation) -> *const LeanRule {
     unsafe {
         let o = lean_alloc_ctor(0, 3, 1) as *mut LeanRule;
         (*o).lhs = to_lean_spine(&r.lhs);
@@ -241,20 +242,19 @@ pub struct LeanLet {
     rules: *const LeanArrayObject
 }
 
-fn to_ir_let(l: *const LeanLet) -> IRLet {
+fn to_ir_let(l: *const LeanLet) -> IRDecl {
     unsafe {
-        IRLet {
-            var: to_ir_var((*l).var),
-            rules: to_vec((*l).rules).iter().map(|x| to_ir_rule(*x as *const LeanRule)).collect()
-        }
+        let mut var = to_ir_var((*l).var);
+        var.equations = to_vec((*l).rules).iter().map(|x| to_ir_rule(*x as *const LeanRule)).collect();
+        return var
     }
 }
 
-fn to_lean_let(d: &IRLet) -> *const LeanLet {
+fn to_lean_let(d: &IRDecl) -> *const LeanLet {
     unsafe {
         let o = lean_alloc_ctor(0, 2, 0) as *mut LeanLet;
-        (*o).var = to_lean_var(&d.var);
-        (*o).rules = to_lean_array(&d.rules.iter().map(|x| to_lean_rule(x) as *const LeanObject).collect());
+        (*o).var = to_lean_var(&d);
+        (*o).rules = to_lean_array(&d.equations.iter().map(|x| to_lean_rule(x) as *const LeanObject).collect());
         o
     }
 }
