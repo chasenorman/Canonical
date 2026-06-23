@@ -325,6 +325,7 @@ pub struct Rule {
 /// The `name` and `value` of a variable in the original input problem.
 pub struct Bind {
     pub name: String,
+    pub constraints: Vec<(S<Meta>, S<Meta>)>,
     pub rules: Vec<Rule>,
     pub redexes: Vec<Vec<Instruction>>,
 
@@ -335,6 +336,7 @@ impl Bind {
     pub fn new(name: String) -> Self {
         Bind {
             name,
+            constraints: Vec::new(),
             rules: Vec::new(),
             redexes: Vec::new(),
             owned_bindings: Vec::new()

@@ -69,14 +69,7 @@ pub struct IRType {
 }
 
 impl IRDecl {
-    pub fn to_bind(&self) -> Bind {
-        Bind {
-            name: self.name.clone(),
-            rules: Vec::new(),
-            redexes: Vec::new(),
-            owned_bindings: Vec::new()
-        }
-    }
+    pub fn to_bind(&self) -> Bind { Bind::new(self.name.clone()) }
 }
 
 fn get_rules(term: &Term) -> Vec<String> {
@@ -250,6 +243,13 @@ impl IRTerm {
             bindings: bindings.downgrade() 
         };
         let es = es.append(node, owned_linked);
+
+        for (i, d) in self.params.iter().enumerate() {
+            bindings.borrow_mut().params[i].borrow_mut().constraints = d.equations.iter().map(|c| (
+                S::new(c.lhs.to_body(es.clone(), S::new(Indexed { params: Vec::new(), lets: Vec::new() }), Vec::new())), 
+                S::new(c.rhs.to_body(es.clone(), S::new(Indexed { params: Vec::new(), lets: Vec::new() }), Vec::new()))
+            )).collect()
+        }
 
         // Use the extended ES to resolve the values of the lets. 
         for (i, d) in self.lets.iter().enumerate() {

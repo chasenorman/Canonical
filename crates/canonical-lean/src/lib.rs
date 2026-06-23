@@ -184,25 +184,6 @@ fn lean_alloc_ctor(tag: usize, num_objs: usize, scalar_sz: usize) -> *mut LeanCt
     o
 }
 
-// #[repr(C)]
-// pub struct LeanVar {
-//     m_header: LeanObject,
-//     name: *const LeanStringObject
-// }
-
-type LeanVar = LeanStringObject;
-
-fn to_ir_var(v: *const LeanVar) -> IRDecl {
-    IRDecl {
-        name: to_string(v),
-        equations: Vec::new()
-    }
-}
-
-fn to_lean_var(v: &IRDecl) -> *const LeanVar {
-    to_lean_string(&v.name)
-}
-
 #[repr(C)]
 pub struct LeanRule {
     m_header: LeanObject,
@@ -236,24 +217,25 @@ fn to_lean_rule(r: &IREquation) -> *const LeanRule {
 
 
 #[repr(C)]
-pub struct LeanLet {
+pub struct LeanDecl {
     m_header: LeanObject,
-    var: *const LeanVar,
+    name: *const LeanStringObject,
     rules: *const LeanArrayObject
 }
 
-fn to_ir_let(l: *const LeanLet) -> IRDecl {
+fn to_ir_decl(l: *const LeanDecl) -> IRDecl {
     unsafe {
-        let mut var = to_ir_var((*l).var);
-        var.equations = to_vec((*l).rules).iter().map(|x| to_ir_rule(*x as *const LeanRule)).collect();
-        return var
+        IRDecl { 
+            name: to_string((*l).name), 
+            equations: to_vec((*l).rules).iter().map(|x| to_ir_rule(*x as *const LeanRule)).collect()
+        }
     }
 }
 
-fn to_lean_let(d: &IRDecl) -> *const LeanLet {
+fn to_lean_decl(d: &IRDecl) -> *const LeanDecl {
     unsafe {
-        let o = lean_alloc_ctor(0, 2, 0) as *mut LeanLet;
-        (*o).var = to_lean_var(&d);
+        let o = lean_alloc_ctor(0, 2, 0) as *mut LeanDecl;
+        (*o).name = to_lean_string(&d.name);
         (*o).rules = to_lean_array(&d.equations.iter().map(|x| to_lean_rule(x) as *const LeanObject).collect());
         o
     }
@@ -301,8 +283,8 @@ pub struct LeanTerm {
 fn to_ir_term(term: *const LeanTerm) -> IRTerm {
     unsafe {
         IRTerm {
-            params: to_vec((*term).params).iter().map(|x| to_ir_var(*x as *const LeanVar)).collect(),
-            lets: to_vec((*term).lets).iter().map(|x| to_ir_let(*x as *const LeanLet)).collect(),
+            params: to_vec((*term).params).iter().map(|x| to_ir_decl(*x as *const LeanDecl)).collect(),
+            lets: to_vec((*term).lets).iter().map(|x| to_ir_decl(*x as *const LeanDecl)).collect(),
             spine: to_ir_spine((*term).spine),
 
             goal_rules: Vec::new()
@@ -313,8 +295,8 @@ fn to_ir_term(term: *const LeanTerm) -> IRTerm {
 fn to_lean_term(term: &IRTerm) -> *const LeanTerm {
     unsafe {
         let o = lean_alloc_ctor(0, 4, 0) as *mut LeanTerm;
-        (*o).params = to_lean_array(&term.params.iter().map(|x| to_lean_var(x) as *const LeanObject).collect());
-        (*o).lets = to_lean_array(&term.lets.iter().map(|x| to_lean_let(x) as *const LeanObject).collect());
+        (*o).params = to_lean_array(&term.params.iter().map(|x| to_lean_decl(x) as *const LeanObject).collect());
+        (*o).lets = to_lean_array(&term.lets.iter().map(|x| to_lean_decl(x) as *const LeanObject).collect());
         (*o).spine = to_lean_spine(&term.spine);
         
         (*o).goal_rules = to_lean_array(&term.goal_rules.iter().map(|x| to_lean_string(x) as *const LeanObject).collect());

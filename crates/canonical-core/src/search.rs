@@ -60,6 +60,10 @@ pub fn test(head: DeBruijnIndex, curr: W<Linked>, mut meta: W<Meta>) -> Option<O
         let typ = var_type.get(Index::Param(i), 
             Entry { params_id: var_id, lets_id: let_id, subst: None, context: None }, &mut assignment._owned_linked
         );
+        arg.constraints = typ.2.borrow().constraints.iter().map(|(p, g)| {
+            let result: Box<dyn Constraint> = Box::new(Equation { premise: Term { base: p.downgrade(), es: typ.1.clone() }, goal: Term { base: g.downgrade(), es: typ.1.clone() }});
+            result
+        }).collect();
         arg.gamma = gamma.append(Node { 
             entry: Entry { params_id: var_id, lets_id: let_id, subst: None, context: Some(typ.clone()) }, 
             bindings: arg.bindings.clone() 
