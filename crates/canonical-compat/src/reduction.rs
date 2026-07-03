@@ -74,8 +74,8 @@ fn get_children(builds: &Vec<(&mut Build, &IRSpine, ES)>) -> Vec<usize> {
     return children;
 }
 
-fn get_bindings(build: &mut Build, term: &IRSpine, es: ES) -> S<Indexed<S<Bind>>> {
-    let mut params: Vec<S<Bind>> = Vec::new();
+fn get_bindings(build: &mut Build, term: &IRSpine, es: ES) -> S<Indexed> {
+    let mut params: Vec<S<Decl>> = Vec::new();
     let mut found = false;
     
     for arg in term.args.iter() {
@@ -83,10 +83,10 @@ fn get_bindings(build: &mut Build, term: &IRSpine, es: ES) -> S<Indexed<S<Bind>>
         let (es, _bindings) = arg.add_local(&es, &mut owned_linked);
         if es.index_of(&arg.spine.head).is_none() && build.arguments.contains(&arg.spine.head) {
             build.arguments.remove(&arg.spine.head);
-            params.push(S::new(Bind::new(arg.spine.head.clone())));
+            params.push(S::new(Decl::new(arg.spine.head.clone())));
             found = true;
         } else {
-            params.push(S::new(Bind::new("*".to_string())));
+            params.push(S::new(Decl::new("*".to_string())));
         }
     }
 
@@ -96,9 +96,9 @@ fn get_bindings(build: &mut Build, term: &IRSpine, es: ES) -> S<Indexed<S<Bind>>
     });
 }
 
-fn _to_rules(state: Vec<(&mut Build, &IRSpine, ES)>, owned_linked: &mut Vec<S<Linked>>, owned_bindings: &mut Vec<S<Indexed<S<Bind>>>>) {
+fn _to_rules(state: Vec<(&mut Build, &IRSpine, ES)>, owned_linked: &mut Vec<S<Linked>>, owned_bindings: &mut Vec<S<Indexed>>) {
     // Partition by the head `Bind`.
-    let mut map: HashMap<W<Bind>, Vec<(&mut Build, &IRSpine, ES)>> = HashMap::new();
+    let mut map: HashMap<W<Decl>, Vec<(&mut Build, &IRSpine, ES)>> = HashMap::new();
     for (build, term, es) in state.into_iter() {
         if let Some((_, bind)) = es.index_of(&term.head) {
             if !map.contains_key(&bind) {
@@ -135,7 +135,7 @@ fn _to_rules(state: Vec<(&mut Build, &IRSpine, ES)>, owned_linked: &mut Vec<S<Li
     }
 }
 
-pub fn to_rules(rules: &Vec<IREquation>, es: &ES, owned_linked: &mut Vec<S<Linked>>, owned_bindings: &mut Vec<S<Indexed<S<Bind>>>>) -> Vec<Rule> {    
+pub fn to_rules(rules: &Vec<IREquation>, es: &ES, owned_linked: &mut Vec<S<Linked>>, owned_bindings: &mut Vec<S<Indexed>>) -> Vec<Rule> {    
     let mut owned: Vec<Build> = rules.iter().map(|rule|{
         let mut arguments: HashSet<String> = HashSet::new();
         // TODO ensure that params are set to Vec::new()

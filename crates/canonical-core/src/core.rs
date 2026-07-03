@@ -54,7 +54,7 @@ pub struct Assignment {
     pub args: Vec<S<Meta>>,
 
     /// `bind` (redundantly) contains the `Bind` of the `head` symbol in the context Gamma
-    pub bind: W<Bind>,
+    pub bind: W<Decl>,
 
     /// `changes` and `_owned_linked` allow us to return to the previous state during backtracking.
     pub changes: Vec<W<Meta>>,
@@ -77,10 +77,10 @@ pub struct Meta {
     /// The `Type` of this metavariable.
     pub typ: Option<Type>,
     /// The bindings introduced by this term.
-    pub bindings: W<Indexed<S<Bind>>>,
+    pub bindings: W<Indexed>,
     pub from_original_problem: bool,
 
-    pub _owned_bindings: Option<S<Indexed<S<Bind>>>>, // exclusively for ownership purposes.
+    pub _owned_bindings: Option<S<Indexed>>, // exclusively for ownership purposes.
 
     /// Statistics and heuristics information.
     /// Statistics are generally accumulated in `stats_buffer`, but this must be reset during parallel processing,
@@ -99,7 +99,7 @@ impl Meta {
             assignment: None,
             gamma: typ.1.clone(),
             constraints: Vec::new(),
-            bindings: typ.0.borrow().codomain.borrow().bindings.clone(),
+            bindings: typ.0.borrow().typ.as_ref().unwrap().borrow().bindings.clone(),
             from_original_problem: false,
             _owned_bindings: None,
             stats: SearchInfo::new(),
@@ -278,13 +278,13 @@ impl Subst {
 }
 
 /// A list indexed by `Index`.
-pub struct Indexed<T> {
-    pub params: Vec<T>,
-    pub lets: Vec<T>
+pub struct Indexed {
+    pub params: Vec<S<Decl>>,
+    pub lets: Vec<S<Decl>>
 }
 
-impl<T> std::ops::Index<Index> for Indexed<T> {
-    type Output = T;
+impl std::ops::Index<Index> for Indexed {
+    type Output = S<Decl>;
 
     fn index(&self, index: Index) -> &Self::Output {
         match index {
@@ -294,10 +294,10 @@ impl<T> std::ops::Index<Index> for Indexed<T> {
     }
 }
 
-impl<T> Indexed<T> {
+impl Indexed {
     /// We iterate over params first, as free variables are generally more important than consts.
     /// We iterate over params and lets in reverse order to prioritize dependently typed variables.
-    pub fn iter(indexed: &Indexed<T>) -> impl Iterator<Item = Index> + '_ {
+    pub fn iter(indexed: &Indexed) -> impl Iterator<Item = Index> + '_ {
         let params_iter = (0..indexed.params.len()).rev().map(Param);
         let lets_iter = (0..indexed.lets.len()).rev().map(Let);
         params_iter.chain(lets_iter)
@@ -305,15 +305,15 @@ impl<T> Indexed<T> {
 }
 
 pub struct Instruction {
-    pub bind: W<Bind>,
+    pub bind: W<Decl>,
     pub parents: u32,
     pub child: usize
 }
 
 pub struct Symbol {
-    pub bind: W<Bind>,
+    pub bind: W<Decl>,
     pub children: Vec<usize>,
-    pub bindings: S<Indexed<S<Bind>>>
+    pub bindings: S<Indexed>
 }
 
 pub struct Rule {
@@ -323,23 +323,33 @@ pub struct Rule {
 }
 
 /// The `name` and `value` of a variable in the original input problem.
-pub struct Bind {
+// pub struct Bind {
+//     pub name: String,
+//     pub constraints: Vec<(S<Meta>, S<Meta>)>,
+//     pub rules: Vec<Rule>,
+//     pub redexes: Vec<Vec<Instruction>>,
+
+//     pub owned_bindings: Vec<S<Indexed<S<Bind>>>>
+// }
+
+pub struct Decl {
     pub name: String,
     pub constraints: Vec<(S<Meta>, S<Meta>)>,
     pub rules: Vec<Rule>,
     pub redexes: Vec<Vec<Instruction>>,
-
-    pub owned_bindings: Vec<S<Indexed<S<Bind>>>>
+    pub typ: Option<S<Meta>>,
+    pub _owned_bindings: Vec<S<Indexed>>
 }
 
-impl Bind {
+impl Decl {
     pub fn new(name: String) -> Self {
-        Bind {
+        Decl {
             name,
             constraints: Vec::new(),
             rules: Vec::new(),
             redexes: Vec::new(),
-            owned_bindings: Vec::new()
+            typ: None,
+            _owned_bindings: Vec::new()
         }
     }
 }
@@ -379,7 +389,7 @@ impl Entry {
 /// An `entry` accompanied with the associated `bindings` from the original problem. 
 pub struct Node {
     pub entry: Entry,
-    pub bindings: W<Indexed<S<Bind>>>,
+    pub bindings: W<Indexed>,
 }
 
 /// A linked list of `Node`
@@ -449,7 +459,7 @@ impl ES {
     }
 
     /// Finds the `DeBruijnIndex` and `Bind` with a certain `name` in this `ES`.
-    pub fn index_of(&self, name: &String) -> Option<(DeBruijnIndex, W<Bind>)> {
+    pub fn index_of(&self, name: &String) -> Option<(DeBruijnIndex, W<Decl>)> {
         self.iter().find(|(db, linked)| &linked.borrow().node.bindings.borrow()[db.1].borrow().name == name)
             .map(|(db, linked)| (db, linked.borrow().node.bindings.borrow()[db.1].downgrade()))
     }
@@ -595,16 +605,16 @@ pub enum Polarity {
 
 /// A `DeBruijnIndex`-ed type, with a `codomain` (return type)
 /// and parameter/let `types` 
-pub struct TypeBase {
-    pub codomain: S<Meta>,
-    pub types: S<Indexed<Option<S<TypeBase>>>>,
-    pub bind: W<Bind>
-}
+// pub struct TypeBase {
+//     pub codomain: S<Meta>,
+//     pub types: S<Indexed<Option<S<TypeBase>>>>,
+//     pub bind: W<Bind>
+// }
 
-impl TypeBase {
+impl Meta {
     /// Create new metavariables to fill the parameters of this TypeBase.
     pub fn args_metas(&self, parent: Option<W<Meta>>) -> Vec<S<Meta>> {
-        let arity = self.types.borrow().params.len();
+        let arity = self.bindings.borrow().params.len();
         let mut args = Vec::with_capacity(arity);
         for i in 0..arity {
             args.push(S::new(Meta {
@@ -612,7 +622,7 @@ impl TypeBase {
                 typ: None,
                 gamma: ES::new(),
                 constraints: Vec::new(),
-                bindings: self.types.borrow()[Index::Param(i)].as_ref().unwrap().borrow().codomain.borrow().bindings.clone(),
+                bindings: self.bindings.borrow()[Index::Param(i)].borrow().typ.as_ref().unwrap().borrow().bindings.clone(),
                 from_original_problem: false,
                 _owned_bindings: None,
                 stats: SearchInfo::new(),
@@ -630,20 +640,20 @@ impl TypeBase {
 /// that associates a `DeBruijnIndex` with a variable or term.
 /// The `Bind` corresponds to the variable in the original problem that has this `Type`. 
 #[derive(Clone)]
-pub struct Type(pub W<TypeBase>, pub ES);
+pub struct Type(pub W<Decl>, pub ES);
 
 impl Type {
     /// Get the return type, as a `Term`.
     pub fn codomain(&self) -> Term {
-        Term { base: self.0.borrow().codomain.downgrade(), es: self.1.clone() }
+        Term { base: self.0.borrow().typ.as_ref().unwrap().downgrade(), es: self.1.clone() }
     }
 
     /// Get the `i`th parameter type, specialized to `entry`.
     pub fn get(&self, i: Index, entry: Entry, owned_linked: &mut Vec<S<Linked>>) -> Type {
-        let base = self.0.borrow().types.borrow()[i].as_ref().unwrap();
+        let base = &self.0.borrow().typ.as_ref().unwrap().borrow().bindings.borrow()[i];
         Type(
             base.downgrade(), 
-            self.1.append(Node {entry, bindings: base.borrow().codomain.borrow().bindings.clone() }, owned_linked),
+            self.1.append(Node {entry, bindings: base.borrow().typ.as_ref().unwrap().borrow().bindings.clone() }, owned_linked),
         )
     }
 }
@@ -653,7 +663,7 @@ impl Type {
 pub struct Var {
     entry_id: u64,
     index: Index,
-    pub bind: W<Bind>
+    pub bind: W<Decl>
 }
 
 impl Var {

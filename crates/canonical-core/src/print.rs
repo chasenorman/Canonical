@@ -12,7 +12,7 @@ impl WHNF {
     }
 }
 
-impl<T> Indexed<T> {
+impl Indexed {
     /// A lambda requires parentheses if there are parameters or lets.
     fn needs_parens(&self) -> bool {
         self.params.len() > 0 || self.lets.len() > 0
@@ -52,7 +52,7 @@ impl fmt::Display for WHNF {
             }
             None => { 
                 if let Some(typ) = &self.0.base.borrow().typ {
-                    write!(f, "?{}", typ.0.borrow().bind.borrow().name.clone())
+                    write!(f, "?{}", typ.0.borrow().name.clone())
                 } else {
                     write!(f, "?")
                 }
@@ -61,7 +61,7 @@ impl fmt::Display for WHNF {
     }
 }
 
-impl fmt::Display for Indexed<S<Bind>> {
+impl fmt::Display for Indexed {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.needs_parens() { write!(f, "λ")? }
         for param in &self.params {

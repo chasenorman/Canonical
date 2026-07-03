@@ -31,14 +31,14 @@ impl DFSResult {
 /// Construct and test the `Assignment` from refining `meta` with `head`.
 pub fn test(head: DeBruijnIndex, curr: W<Linked>, mut meta: W<Meta>) -> Option<Option<(Assignment, Vec<Box<dyn Constraint>>, AssignmentInfo)>> {
     let context = curr.borrow().node.entry.context.as_ref().unwrap();
-    let tb = context.0.borrow().types.borrow()[head.1].as_ref().unwrap();
+    let tb = context.0.borrow().typ.as_ref().unwrap().borrow().bindings.borrow()[head.1].borrow().typ.as_ref().unwrap();
     let args: Vec<S<Meta>> = tb.borrow().args_metas(Some(meta.clone()));
     let gamma = meta.borrow().gamma.clone();
     let mut _owned_linked = Vec::new();
     let var_type = curr.borrow().node.entry.context.as_ref().unwrap().get(head.1, Entry::subst(Subst(WVec::new(&args), gamma.clone())), &mut _owned_linked);
 
     meta.borrow_mut().assignment = Some(Assignment {
-        head, args, bind: var_type.0.borrow().bind.clone(), changes: Vec::new(), _owned_linked,
+        head, args, bind: var_type.0.clone(), changes: Vec::new(), _owned_linked,
         has_rigid_type: matches!(var_type.codomain().whnf::<true, ()>(&mut Vec::new(), &mut ()).1, Head::Var(_)),
         var_type: Some(var_type.clone()),
     });
@@ -53,14 +53,14 @@ pub fn test(head: DeBruijnIndex, curr: W<Linked>, mut meta: W<Meta>) -> Option<O
     let mut assignment = meta.borrow_mut().assignment.take().unwrap();
 
     // Calculate the `typ` and `gamma` of the new metavariables.
-    for i in 0..tb.borrow().types.borrow().params.len() {
+    for i in 0..tb.borrow().bindings.borrow().params.len() {
         let arg = assignment.args[i].borrow_mut(); 
         let var_id = next_u64();
         let let_id = next_u64();
         let typ = var_type.get(Index::Param(i), 
             Entry { params_id: var_id, lets_id: let_id, subst: None, context: None }, &mut assignment._owned_linked
         );
-        arg.constraints = typ.0.borrow().bind.borrow().constraints.iter().map(|(p, g)| {
+        arg.constraints = typ.0.borrow().constraints.iter().map(|(p, g)| {
             let result: Box<dyn Constraint> = Box::new(Equation { premise: Term { base: p.downgrade(), es: typ.1.clone() }, goal: Term { base: g.downgrade(), es: typ.1.clone() }});
             result
         }).collect();

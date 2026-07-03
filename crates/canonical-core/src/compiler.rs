@@ -24,13 +24,13 @@ fn get_type(term: Term, owned_linked: &mut Vec<S<Linked>>) -> Option<Term> {
     let assn = term.base.borrow().assignment.as_ref().unwrap();
     let sub_es = term.es.sub_es(assn.head.0);
     let Some(context) = sub_es.linked.as_ref().unwrap().borrow().node.entry.context.as_ref() else { return None };
-    let Some(tb) = context.0.borrow().types.borrow()[assn.head.1].as_ref() else { return None };
+    let Some(tb) = context.0.borrow().typ.as_ref().unwrap().borrow().bindings.borrow()[assn.head.1].borrow().typ.as_ref() else { return None };
     
     return Some(Term {
-        base: tb.borrow().codomain.downgrade(),
+        base: tb.downgrade(),
         es: sub_es.append(Node { 
             entry: Entry::subst(Subst(WVec::new(&assn.args), term.es.clone())), 
-            bindings: tb.borrow().codomain.borrow().bindings.clone()
+            bindings: tb.borrow().bindings.clone()
         }, owned_linked)
     })
 }
@@ -80,7 +80,7 @@ pub fn compile(typ: Type) {
 
 impl ES {
     /// Returns an iterator of `DeBruijnIndex` in this `ES``, along with the `Linked` they are rooted at.
-    pub fn iter_unify(&self, tb: W<TypeBase>) -> impl Iterator<Item = (DeBruijnIndex, W<Linked>)> {
+    pub fn iter_unify(&self, tb: W<Meta>) -> impl Iterator<Item = (DeBruijnIndex, W<Linked>)> {
         iter::successors(self.linked.clone(), |node| 
             node.borrow().tail.clone() // Iterate over the linked list.
         ).enumerate().flat_map(move |(db, node)|
@@ -99,7 +99,7 @@ fn get_compilation_info(typ: Type, goals: &mut Vec<(Type, Vec<(Type, Index)>)>,
             context: Some(typ.clone())
         },
         Polarity::Premise => {
-            let metas = typ.0.borrow().args_metas(None);
+            let metas = typ.0.borrow().typ.as_ref().unwrap().borrow().args_metas(None);
             let result = Entry {
                 params_id: next_u64(), lets_id: next_u64(),
                 subst: Some(Subst(WVec::new(&metas), ES::new())),
@@ -110,12 +110,14 @@ fn get_compilation_info(typ: Type, goals: &mut Vec<(Type, Vec<(Type, Index)>)>,
         }
     };
 
-    let es = typ.1.append(Node { entry: entry, bindings: typ.0.borrow().codomain.borrow().bindings.clone() }, owned_linked);
+    let bindings = &typ.0.borrow().typ.as_ref().unwrap().borrow().bindings;
+    let es = typ.1.append(Node { entry: entry, bindings: bindings.clone() }, owned_linked);
 
     let mut children = Vec::new();
 
-    for i in Indexed::iter(typ.0.borrow().types.borrow()) {
-        if let Some(child) = typ.0.borrow().types.borrow()[i].as_ref() {
+    for i in Indexed::iter(bindings.borrow()) {
+        let child = &bindings.borrow()[i];
+        if child.borrow().typ.is_some() {
             let child = get_compilation_info(Type(child.downgrade(), es.clone()), goals, polarity.opposite(), owned_linked, owned_metas);
             children.push((child, i));
         }
