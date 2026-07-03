@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 pub struct Example {
-    pub problem: IRExpr,
+    pub problem: IRDecl,
     pub unifications: HashMap<String, HashMap<String, u32>>
 }
 

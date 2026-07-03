@@ -1,6 +1,5 @@
 use crate::core::*;
 use std::fmt;
-use crate::memory::S;
 
 impl WHNF {
     /// A weak head normal form term needs parentheses if there are arguments.

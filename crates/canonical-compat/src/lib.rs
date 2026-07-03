@@ -74,14 +74,10 @@ macro_rules! P {
 /// You can create a json file using the `+debug` tactic option.
 #[tokio::main]
 pub async fn main() {
-    let decl = IRDecl {
-        name: "proof".to_string(),
-        typ: Some(IRExpr::load("lean/debug.json".to_string())),
-        equations: Vec::new()
-    };
+    let problem = IRDecl::load("lean/debug.json".to_string());
     let mut owned_linked = Vec::new();
 
-    let (meta, _tb, _bind) = decl.to_meta(&mut owned_linked);
+    let (meta, _decl) = problem.to_meta(&mut owned_linked);
     let prover = Prover { next_root: meta.downgrade(), meta };
     // let state = AppState {
     //     current: prover.meta,
@@ -90,8 +86,7 @@ pub async fn main() {
     //     autofill: true,
     //     constraints: false,
     //     _owned_linked: owned_linked,
-    //     _owned_tb: _tb,
-    //     _owned_bind: _bind
+    //     _owned_bind: _decl
     // };
 
     // start_server(state).await;

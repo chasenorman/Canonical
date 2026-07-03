@@ -474,7 +474,7 @@ pub unsafe extern "C" fn canonical(decl: *const LeanDecl, timeout: u64, count: u
         let arc : Arc<Mutex<Vec<IRExpr>>> = Arc::new(Mutex::new(Vec::new()));
         let arc_clone = arc.clone();
         let mut owned_linked = Vec::new();
-        let (meta, _tb, _bind) = ir_decl.to_meta(&mut owned_linked);
+        let (meta, _decl) = ir_decl.to_meta(&mut owned_linked);
         let prover = Prover { next_root: meta.downgrade(), meta };
 
         let worker = thread::spawn(move || {
@@ -518,7 +518,7 @@ pub unsafe extern "C" fn refine(decl: *const LeanDecl) -> *const LeanResult {
     to_lean_result(None, || {
         let ir_decl = to_ir_decl(decl);
         let mut owned_linked = Vec::new();
-        let (meta, tb, bind) = ir_decl.to_meta(&mut owned_linked);
+        let (meta, problem_decl) = ir_decl.to_meta(&mut owned_linked);
 
         let new_state = AppState {
             current: meta,
@@ -527,8 +527,7 @@ pub unsafe extern "C" fn refine(decl: *const LeanDecl) -> *const LeanResult {
             autofill: true,
             constraints: false,
             _owned_linked: owned_linked,
-            _owned_tb: tb,
-            _owned_bind: bind
+            _owned_bind: problem_decl
         };
 
         match GLOBAL_STATE.get() {
@@ -569,10 +568,11 @@ pub unsafe extern "C" fn get_refinement() -> *const LeanResult {
     }, || {})
 }
 
+/// `saveProblem` in Lean.
 #[no_mangle]
-pub unsafe extern "C" fn save_typ(typ: *const LeanExpr, file: *const LeanStringObject) -> *const LeanResult {
-    let ir_expr = to_ir_expr(typ);
-    ir_expr.save(to_string(file));
+pub unsafe extern "C" fn save_problem(decl: *const LeanDecl, file: *const LeanStringObject) -> *const LeanResult {
+    let ir_decl = to_ir_decl(decl);
+    ir_decl.save(to_string(file));
     lean_io_result_mk_ok(lean_box(0))
 }
 

@@ -285,7 +285,7 @@ fn find_autofill(meta: W<Meta>) -> Option<(W<Meta>, DeBruijnIndex)> {
     match &meta.borrow().assignment {
         None => {
             let domain: Vec<(DeBruijnIndex, W<Linked>)> = meta.borrow().gamma.iter_unify(
-                meta.borrow().typ.as_ref().unwrap().0.borrow().typ.as_ref().unwrap().downgrade()
+                meta.borrow().typ.as_ref().unwrap().0.clone()
             ).filter(|(db, linked)| {
                 test(db.clone(), linked.clone(), meta.clone()).is_some_and(|o| o.is_some())
             }).collect();

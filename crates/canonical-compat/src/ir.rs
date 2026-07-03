@@ -67,52 +67,47 @@ pub struct IRExpr {
 impl IRDecl {
     pub fn to_bind(&self) -> Decl { Decl::new(self.name.clone()) }
 
-    /// Translate this declaration, compiling `equations` into `bind` and converting `typ`.
+    /// Translate this declaration, compiling `equations` and `typ` into `decl`.
     /// Equations on a let (`LET`) define reduction, as rewrite rules and redexes;
     /// equations on a param constrain the instantiation of its variables, checked as `Equation`s.
-    fn translate<const LET: bool>(&self, bind: &mut S<Decl>, es: &ES, owned_linked: &mut Vec<S<Linked>>) -> Option<Decl> {
+    fn translate<const LET: bool>(&self, decl: &mut S<Decl>, es: &ES, owned_linked: &mut Vec<S<Linked>>) {
         if LET {
             let mut owned_bindings = Vec::new();
-            bind.borrow_mut().rules = to_rules(&self.equations, es, owned_linked, &mut owned_bindings);
-            bind.borrow_mut().redexes = to_redexes(&self.equations, es);
-            bind.borrow_mut()._owned_bindings = owned_bindings;
+            decl.borrow_mut().rules = to_rules(&self.equations, es, owned_linked, &mut owned_bindings);
+            decl.borrow_mut().redexes = to_redexes(&self.equations, es);
+            decl.borrow_mut()._owned_bindings = owned_bindings;
         } else {
-            bind.borrow_mut().constraints = self.equations.iter().map(|c| (
+            decl.borrow_mut().constraints = self.equations.iter().map(|c| (
                 S::new(c.lhs.to_body(es.clone(), S::new(Indexed { params: Vec::new(), lets: Vec::new() }), Vec::new())),
                 S::new(c.rhs.to_body(es.clone(), S::new(Indexed { params: Vec::new(), lets: Vec::new() }), Vec::new()))
             )).collect();
         }
-        
-        self.typ.as_ref().map(|t| {
-            let (codomain, types) = t.to_expr(es);
-            S::new(TypeBase { codomain: S::new(codomain), types: S::new(types), bind: bind.downgrade() })
-        })
+        decl.borrow_mut().typ = self.typ.as_ref().map(|t| t.to_expr(es));
     }
 
     /// Translate this declaration into a metavariable to be solved, with `typ` as its `Type`.
-    /// The returned `TypeBase` and `Bind` must be kept alive as long as the metavariable.
-    pub fn to_meta(&self, owned_linked: &mut Vec<S<Linked>>) -> (S<Meta>, S<Meta>, S<Decl>) {
-        let typ = self.typ.as_ref().expect(&format!("Declaration {} has no type.", self.name));
-        let bind = S::new(self.to_bind());
-        let (codomain, types) = typ.to_expr(&ES::new());
-        let tb = S::new(TypeBase { codomain: S::new(codomain), types: S::new(types), bind: bind.downgrade() });
+    /// The returned `Decl` owns the type, and must be kept alive as long as the metavariable.
+    pub fn to_meta(&self, owned_linked: &mut Vec<S<Linked>>) -> (S<Meta>, S<Decl>) {
+        assert!(self.typ.is_some(), "Declaration {} has no type.", self.name);
+        let mut decl = S::new(self.to_bind());
+        self.translate::<false>(&mut decl, &ES::new(), owned_linked);
 
-        // Recreate the node of the codomain's ES, adding `tb` as the typing context.
-        let gamma = tb.borrow().codomain.borrow().gamma.clone();
+        // Recreate the node of the codomain's ES, adding the declaration as the typing context.
+        let gamma = decl.borrow().typ.as_ref().unwrap().borrow().gamma.clone();
         let linked = gamma.linked.as_ref().unwrap();
         let node = Node {
             entry: Entry {
                 params_id: linked.borrow().node.entry.params_id,
                 lets_id: linked.borrow().node.entry.lets_id,
                 subst: None,
-                context: Some(Type(tb.downgrade(), gamma.clone()))
+                context: Some(Type(decl.downgrade(), gamma.clone()))
             },
             bindings: linked.borrow().node.bindings.clone()
         };
         let es = ES::new().append(node, owned_linked);
 
-        compile(Type(tb.downgrade(), ES::new()));
-        (S::new(Meta::new(Type(tb.downgrade(), es))), tb, bind)
+        compile(Type(decl.downgrade(), ES::new()));
+        (S::new(Meta::new(Type(decl.downgrade(), es))), decl)
     }
 }
 
@@ -134,7 +129,7 @@ fn _get_rules(term: &Term, attribution: &mut Vec<String>, owned_linked: &mut Vec
     }
 }
 
-/// Create a `Bind` with the `preferred_name`, appending a suffix such that it is not contained in `es`.
+/// Create a `Decl` with the `preferred_name`, appending a suffix such that it is not contained in `es`.
 fn disambiguate_bind(preferred_name: &String, es: &ES) -> Decl {
     let mut count = 0;
     let mut name = preferred_name.clone();
@@ -220,7 +215,7 @@ impl IRSpine {
         let meta_id = meta.borrow() as *const Meta as usize;
 
         let options = meta.borrow().gamma.iter_unify(
-            meta.borrow().typ.as_ref().unwrap().0.borrow().typ.as_ref().unwrap().downgrade()
+            meta.borrow().typ.as_ref().unwrap().0.clone()
         ).filter_map(|(db, linked)| {
             if let Some(Some(result)) = test(db, linked, meta.clone()) {
                 let name = result.0.bind.borrow().name.clone();
@@ -255,7 +250,7 @@ impl IRSpine {
     /// Finds the head `DeBruijnIndex` in the `es` and creates a Meta with `bindings` and recursively converted arguments.
     pub fn to_body(&self, es: ES, bindings: S<Indexed>, owned_linked: Vec<S<Linked>>) -> Meta {
         let (head, bind) = es.index_of(&self.head).expect(&format!("Undeclared variable: {}", self.head));
-        let args = self.args.iter().map(|t| t.to_term(&es)).collect();
+        let args = self.args.iter().map(|t| t.to_expr(&es)).collect();
  
         Meta {
             assignment: Some(Assignment { head, args, bind, changes: Vec::new(), _owned_linked: owned_linked, has_rigid_type: true, var_type: None }),
@@ -275,7 +270,7 @@ impl IRSpine {
 }
 
 impl IRExpr {
-    /// Extend `es` with fresh `Bind`s for `self.params` and `self.lets`, without compiling equations.
+    /// Extend `es` with fresh `Decl`s for `self.params` and `self.lets`, without compiling equations.
     pub fn add_local(&self, es: &ES, owned_linked: &mut Vec<S<Linked>>) -> (ES, S<Indexed>) {
         let bindings = S::new(Indexed {
             params: self.params.iter().map(|d| S::new(d.to_bind())).collect(),
@@ -289,25 +284,19 @@ impl IRExpr {
         (es.append(node, owned_linked), bindings)
     }
 
-    /// Convert to a `TypeBase`, translating each declaration in the extended ES:
-    /// `self.spine` is the codomain and the declarations' types are the domain.
-    pub fn to_expr(&self, es: &ES) -> (Meta, Indexed) {
+    /// Convert to the codomain `Meta`, translating each declaration in the extended ES.
+    pub fn to_expr(&self, es: &ES) -> S<Meta> {
         let mut owned_linked = Vec::new();
         let (es, mut bindings) = self.add_local(es, &mut owned_linked);
 
-        let types = Indexed {
-            params: bindings.borrow_mut().params.iter_mut().zip(self.params.iter())
-                .map(|(bind, d)| d.translate::<false>(bind, &es, &mut owned_linked)).collect(),
-            lets: bindings.borrow_mut().lets.iter_mut().zip(self.lets.iter())
-                .map(|(bind, d)| d.translate::<true>(bind, &es, &mut owned_linked)).collect()
-        };
+        for (decl, d) in bindings.borrow_mut().params.iter_mut().zip(self.params.iter()) {
+            d.translate::<false>(decl, &es, &mut owned_linked);
+        }
+        for (decl, d) in bindings.borrow_mut().lets.iter_mut().zip(self.lets.iter()) {
+            d.translate::<true>(decl, &es, &mut owned_linked);
+        }
 
-        return (self.spine.to_body(es, bindings, owned_linked), types)
-    }
-
-    /// Convert to a term, ignoring the types of the declarations.
-    pub fn to_term(&self, es: &ES) -> S<Meta> {
-        S::new(self.to_expr(es).0)
+        S::new(self.spine.to_body(es, bindings, owned_linked))
     }
 
     pub fn from_lambda<const RULES: bool>(term: Term, bindings: W<Indexed>, html: bool) -> IRExpr {
@@ -385,15 +374,15 @@ impl IRExpr {
     }
 }
 
-impl IRExpr {
-    /// Save this `IRExpr` as JSON to `file`.
+impl IRDecl {
+    /// Save this `IRDecl` as JSON to `file`.
     pub fn save(&self, file: String) {
         let file = File::create(file).unwrap();
         serde_json::to_writer(file, self).unwrap();
     }
 
-    /// Load an `IRExpr` from a JSON `file`.
-    pub fn load(file: String) -> IRExpr {
+    /// Load an `IRDecl` from a JSON `file`.
+    pub fn load(file: String) -> IRDecl {
         let file = File::open(file).unwrap();
         serde_json::from_reader(file).unwrap()
     }
