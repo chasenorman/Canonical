@@ -1,6 +1,7 @@
 use canonical_core::core::*;
 use canonical_core::memory::{S, W};
 use canonical_core::search::test;
+use canonical_core::compiler::compile;
 use std::fmt;
 use serde::{Serialize, Deserialize};
 use std::fs::File;
@@ -82,6 +83,31 @@ impl IRDecl {
             )).collect();
         }
         self.typ.as_ref().map(|t| S::new(t.to_expr(es)))
+    }
+
+    /// Translate this declaration into a metavariable to be solved, with `typ` as its `Type`.
+    /// The returned `TypeBase` and `Bind` must be kept alive as long as the metavariable.
+    pub fn to_meta(&self, owned_linked: &mut Vec<S<Linked>>) -> (S<Meta>, S<TypeBase>, S<Bind>) {
+        let typ = self.typ.as_ref().expect(&format!("Declaration {} has no type.", self.name));
+        let tb = S::new(typ.to_expr(&ES::new()));
+        let bind = S::new(self.to_bind());
+
+        // Recreate the node of the codomain's ES, adding `tb` as the typing context.
+        let gamma = tb.borrow().codomain.borrow().gamma.clone();
+        let linked = gamma.linked.as_ref().unwrap();
+        let node = Node {
+            entry: Entry {
+                params_id: linked.borrow().node.entry.params_id,
+                lets_id: linked.borrow().node.entry.lets_id,
+                subst: None,
+                context: Some(Type(tb.downgrade(), gamma.clone(), bind.downgrade()))
+            },
+            bindings: linked.borrow().node.bindings.clone()
+        };
+        let es = ES::new().append(node, owned_linked);
+
+        compile(Type(tb.downgrade(), ES::new(), bind.downgrade()));
+        (S::new(Meta::new(Type(tb.downgrade(), es, bind.downgrade()))), tb, bind)
     }
 }
 

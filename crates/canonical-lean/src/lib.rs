@@ -4,7 +4,6 @@ use canonical_compat::ir::*;
 use canonical_core::core::*;
 use canonical_core::prover::*;
 use canonical_core::search::*;
-use canonical_core::memory::S;
 use std::thread;
 use std::time::Duration;
 use std::sync::atomic::Ordering;
@@ -466,18 +465,17 @@ where
 
 /// `canonical` in Lean.
 #[no_mangle]
-pub unsafe extern "C" fn canonical(typ: *const LeanExpr, name: *const LeanStringObject, timeout: u64, count: usize) -> *const LeanResult {
+pub unsafe extern "C" fn canonical(decl: *const LeanDecl, timeout: u64, count: usize) -> *const LeanResult {
     let instance = INSTANCE.lock().unwrap();
     to_lean_result(Some(instance), || {
-        let ir_expr = to_ir_expr(typ);
+        let ir_decl = to_ir_decl(decl);
         let (tx, rx) = mpsc::channel();
 
         let arc : Arc<Mutex<Vec<IRExpr>>> = Arc::new(Mutex::new(Vec::new()));
         let arc_clone = arc.clone();
-        let tb = S::new(ir_expr.to_expr(&ES::new()));
-        let problem_bind = S::new(Bind::new(to_string(name)));
         let mut owned_linked = Vec::new();
-        let prover = Prover::new(tb.downgrade(), problem_bind.downgrade(), &mut owned_linked);
+        let (meta, _tb, _bind) = ir_decl.to_meta(&mut owned_linked);
+        let prover = Prover { next_root: meta.downgrade(), meta };
 
         let worker = thread::spawn(move || {
             main(prover, tx, count, arc_clone)
@@ -516,23 +514,21 @@ pub unsafe extern "C" fn cancel() -> *const LeanResult {
 
 /// `refine` in Lean.
 #[no_mangle]
-pub unsafe extern "C" fn refine(typ: *const LeanExpr) -> *const LeanResult {
+pub unsafe extern "C" fn refine(decl: *const LeanDecl) -> *const LeanResult {
     to_lean_result(None, || {
-        let ir_expr = to_ir_expr(typ);
-        let tb_ref = S::new(ir_expr.to_expr(&ES::new()));
-        let problem_bind = S::new(Bind::new("proof".to_string())); // must be stored
+        let ir_decl = to_ir_decl(decl);
         let mut owned_linked = Vec::new();
-        let prover = Prover::new(tb_ref.downgrade(), problem_bind.downgrade(), &mut owned_linked);
+        let (meta, tb, bind) = ir_decl.to_meta(&mut owned_linked);
 
         let new_state = AppState {
-            current: prover.meta,
+            current: meta,
             undo: Vec::new(),
             redo: Vec::new(),
             autofill: true,
             constraints: false,
             _owned_linked: owned_linked,
-            _owned_tb: tb_ref,
-            _owned_bind: problem_bind
+            _owned_tb: tb,
+            _owned_bind: bind
         };
 
         match GLOBAL_STATE.get() {

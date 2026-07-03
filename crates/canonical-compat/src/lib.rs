@@ -1,7 +1,6 @@
 use canonical_core::core::*;
 use canonical_core::stats::*;
 use canonical_core::prover::Prover;
-use canonical_core::memory::S;
 pub mod ir;
 pub mod refine;
 pub mod reduction;
@@ -75,12 +74,15 @@ macro_rules! P {
 /// You can create a json file using the `+debug` tactic option.
 #[tokio::main]
 pub async fn main() {
-    let irt = IRExpr::load("lean/debug.json".to_string());
-    let tb = S::new(irt.to_expr(&ES::new()));
-    let problem_bind = S::new(Bind::new("proof".to_string()));
+    let decl = IRDecl {
+        name: "proof".to_string(),
+        typ: Some(IRExpr::load("lean/debug.json".to_string())),
+        equations: Vec::new()
+    };
     let mut owned_linked = Vec::new();
-    
-    let prover = Prover::new(tb.downgrade(), problem_bind.downgrade(), &mut owned_linked);
+
+    let (meta, _tb, _bind) = decl.to_meta(&mut owned_linked);
+    let prover = Prover { next_root: meta.downgrade(), meta };
     // let state = AppState {
     //     current: prover.meta,
     //     undo: Vec::new(),
@@ -88,8 +90,8 @@ pub async fn main() {
     //     autofill: true,
     //     constraints: false,
     //     _owned_linked: owned_linked,
-    //     _owned_tb: tb_ref,
-    //     _owned_bind: problem_bind
+    //     _owned_tb: _tb,
+    //     _owned_bind: _bind
     // };
 
     // start_server(state).await;
