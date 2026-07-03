@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 pub struct Example {
-    pub problem: IRType,
+    pub problem: IRExpr,
     pub unifications: HashMap<String, HashMap<String, u32>>
 }
 
@@ -29,10 +29,6 @@ impl Example {
     
 // }
 
-// fn linearize_term(t: IRTerm, tokens: &mut Vec<Token>) {
-    
-// }
+// fn linearize_expr(t: IRExpr, tokens: &mut Vec<Token>) {
 
-// fn linearize_type(t: IRType, tokens: &mut Vec<Token>) {
-    
 // }

@@ -159,18 +159,18 @@ fn to_option(o: *const LeanOption) -> Option<*const LeanObject> {
     }
 }
 
-// fn to_lean_option(opt: &Option<*const LeanObject>) -> *const LeanOption {
-//     unsafe {
-//         match opt {
-//             None => lean_box(0) as *const LeanOption,
-//             Some(x) => {
-//                 let o = lean_alloc_ctor(1, 1, 0) as *mut LeanOption;
-//                 (*o).val = *x;
-//                 o
-//             }
-//         }
-//     }
-// }
+fn to_lean_option(opt: &Option<*const LeanObject>) -> *const LeanOption {
+    unsafe {
+        match opt {
+            None => lean_box(0) as *const LeanOption,
+            Some(x) => {
+                let o = lean_alloc_ctor(1, 1, 0) as *mut LeanOption;
+                (*o).val = *x;
+                o
+            }
+        }
+    }
+}
 
 fn lean_alloc_ctor(tag: usize, num_objs: usize, scalar_sz: usize) -> *mut LeanCtorObject {
     assert!(tag <= 244);
@@ -220,13 +220,15 @@ fn to_lean_rule(r: &IREquation) -> *const LeanRule {
 pub struct LeanDecl {
     m_header: LeanObject,
     name: *const LeanStringObject,
+    typ: *const LeanOption, // Option LeanExpr
     rules: *const LeanArrayObject
 }
 
 fn to_ir_decl(l: *const LeanDecl) -> IRDecl {
     unsafe {
-        IRDecl { 
-            name: to_string((*l).name), 
+        IRDecl {
+            name: to_string((*l).name),
+            typ: to_option((*l).typ).map(|t| to_ir_expr(t as *const LeanExpr)),
             equations: to_vec((*l).rules).iter().map(|x| to_ir_rule(*x as *const LeanRule)).collect()
         }
     }
@@ -234,8 +236,9 @@ fn to_ir_decl(l: *const LeanDecl) -> IRDecl {
 
 fn to_lean_decl(d: &IRDecl) -> *const LeanDecl {
     unsafe {
-        let o = lean_alloc_ctor(0, 2, 0) as *mut LeanDecl;
+        let o = lean_alloc_ctor(0, 3, 0) as *mut LeanDecl;
         (*o).name = to_lean_string(&d.name);
+        (*o).typ = to_lean_option(&d.typ.as_ref().map(|t| to_lean_expr(t) as *const LeanObject));
         (*o).rules = to_lean_array(&d.equations.iter().map(|x| to_lean_rule(x) as *const LeanObject).collect());
         o
     }
@@ -254,7 +257,7 @@ fn to_ir_spine(s: *const LeanSpine) -> IRSpine {
     unsafe {
         IRSpine {
             head: to_string((*s).head),
-            args: to_vec((*s).args).iter().map(|x| to_ir_term(*x as *const LeanTerm)).collect(),
+            args: to_vec((*s).args).iter().map(|x| to_ir_expr(*x as *const LeanExpr)).collect(),
             premise_rules: Vec::new()
         }
     }
@@ -264,14 +267,14 @@ fn to_lean_spine(s: &IRSpine) -> *const LeanSpine {
     unsafe {
         let o = lean_alloc_ctor(0, 3, 0) as *mut LeanSpine;
         (*o).head = to_lean_string(&s.head);
-        (*o).args = to_lean_array(&s.args.iter().map(|x| to_lean_term(x) as *const LeanObject).collect());
+        (*o).args = to_lean_array(&s.args.iter().map(|x| to_lean_expr(x) as *const LeanObject).collect());
         (*o).premise_rules = to_lean_array(&s.premise_rules.iter().map(|x| to_lean_string(x) as *const LeanObject).collect());
         o
     }
 }
 
 #[repr(C)]
-pub struct LeanTerm {
+pub struct LeanExpr {
     m_header: LeanObject,
     params: *const LeanArrayObject,
     lets: *const LeanArrayObject,
@@ -280,61 +283,29 @@ pub struct LeanTerm {
     goal_rules: *const LeanArrayObject
 }
 
-fn to_ir_term(term: *const LeanTerm) -> IRTerm {
+fn to_ir_expr(expr: *const LeanExpr) -> IRExpr {
     unsafe {
-        IRTerm {
-            params: to_vec((*term).params).iter().map(|x| to_ir_decl(*x as *const LeanDecl)).collect(),
-            lets: to_vec((*term).lets).iter().map(|x| to_ir_decl(*x as *const LeanDecl)).collect(),
-            spine: to_ir_spine((*term).spine),
+        IRExpr {
+            params: to_vec((*expr).params).iter().map(|x| to_ir_decl(*x as *const LeanDecl)).collect(),
+            lets: to_vec((*expr).lets).iter().map(|x| to_ir_decl(*x as *const LeanDecl)).collect(),
+            spine: to_ir_spine((*expr).spine),
 
             goal_rules: Vec::new()
         }
     }
 }
 
-fn to_lean_term(term: &IRTerm) -> *const LeanTerm {
+fn to_lean_expr(expr: &IRExpr) -> *const LeanExpr {
     unsafe {
-        let o = lean_alloc_ctor(0, 4, 0) as *mut LeanTerm;
-        (*o).params = to_lean_array(&term.params.iter().map(|x| to_lean_decl(x) as *const LeanObject).collect());
-        (*o).lets = to_lean_array(&term.lets.iter().map(|x| to_lean_decl(x) as *const LeanObject).collect());
-        (*o).spine = to_lean_spine(&term.spine);
-        
-        (*o).goal_rules = to_lean_array(&term.goal_rules.iter().map(|x| to_lean_string(x) as *const LeanObject).collect());
+        let o = lean_alloc_ctor(0, 4, 0) as *mut LeanExpr;
+        (*o).params = to_lean_array(&expr.params.iter().map(|x| to_lean_decl(x) as *const LeanObject).collect());
+        (*o).lets = to_lean_array(&expr.lets.iter().map(|x| to_lean_decl(x) as *const LeanObject).collect());
+        (*o).spine = to_lean_spine(&expr.spine);
+
+        (*o).goal_rules = to_lean_array(&expr.goal_rules.iter().map(|x| to_lean_string(x) as *const LeanObject).collect());
         o
     }
 }
-
-#[repr(C)]
-pub struct LeanType {
-    m_header: LeanObject,
-    codomain: *const LeanTerm,
-    params: *const LeanArrayObject,
-    lets: *const LeanArrayObject
-}
-
-fn to_ir_type(t: *const LeanType) -> IRType {
-    unsafe {
-        IRType {
-            params: to_vec((*t).params).iter().map(|x| 
-                to_option(*x as *const LeanOption).map(|t| to_ir_type(t as *const LeanType))).collect(),
-            lets: to_vec((*t).lets).iter().map(|x| 
-                to_option(*x as *const LeanOption).map(|t| to_ir_type(t as *const LeanType))).collect(),
-            codomain: to_ir_term((*t).codomain)
-        }
-    }
-}
-
-// fn to_lean_type(t: &IRType) -> *const LeanType {
-//     unsafe {
-//         let o = lean_alloc_ctor(0, 3, 0) as *mut LeanType;
-//         (*o).params = to_lean_array(&t.params.iter().map(|x| to_lean_option(&x.as_ref().map(|t| 
-//             to_lean_type(&t) as *const LeanObject)) as *const LeanObject).collect());
-//         (*o).lets = to_lean_array(&t.lets.iter().map(|x| 
-//             to_lean_option(&x.as_ref().map(|t| to_lean_type(&t) as *const LeanObject)) as *const LeanObject).collect());
-//         (*o).codomain = to_lean_term(&t.codomain);
-//         o
-//     }
-// }
 
 #[repr(C)]
 pub struct CanonicalResult {
@@ -408,14 +379,14 @@ pub extern "C" fn spine_to_string(spine: *const LeanSpine) -> *const LeanStringO
 
 /// `termToString` in Lean.
 #[no_mangle]
-pub extern "C" fn term_to_string(term: *const LeanTerm) -> *const LeanStringObject {
-    to_lean_string(&to_ir_term(term).to_string())
+pub extern "C" fn term_to_string(term: *const LeanExpr) -> *const LeanStringObject {
+    to_lean_string(&to_ir_expr(term).to_string())
 }
 
 /// `typToString` in Lean.
 #[no_mangle]
-pub extern "C" fn typ_to_string(typ: *const LeanType) -> *const LeanStringObject {
-    to_lean_string(&to_ir_type(typ).to_string())
+pub extern "C" fn typ_to_string(typ: *const LeanExpr) -> *const LeanStringObject {
+    to_lean_string(&AsType(&to_ir_expr(typ)).to_string())
 }
 
 /// `ruleToString in Lean`.
@@ -425,11 +396,11 @@ pub extern "C" fn rule_to_string(rule: *const LeanRule) -> *const LeanStringObje
 }
 
 /// Starts `prover`, appending solutions to `terms` and sending on `sender` once complete.
-fn main(prover: Prover, sender: Sender<()>, count: usize, terms: Arc<Mutex<Vec<IRTerm>>>) -> (DFSResult, u32) {
+fn main(prover: Prover, sender: Sender<()>, count: usize, terms: Arc<Mutex<Vec<IRExpr>>>) -> (DFSResult, u32) {
     prover.prove(&|term: Term| {
         let mut v = terms.lock().unwrap();
         let bindings = term.base.borrow().gamma.linked.as_ref().unwrap().borrow().node.bindings.clone();
-        let ir_term = IRTerm::from_lambda::<false>(term, bindings, false);
+        let ir_term = IRExpr::from_lambda::<false>(term, bindings, false);
         if v.len() < count && v.iter().all(|x| x != &ir_term) {
             v.push(ir_term);
         }
@@ -495,15 +466,15 @@ where
 
 /// `canonical` in Lean.
 #[no_mangle]
-pub unsafe extern "C" fn canonical(typ: *const LeanType, name: *const LeanStringObject, timeout: u64, count: usize) -> *const LeanResult {
+pub unsafe extern "C" fn canonical(typ: *const LeanExpr, name: *const LeanStringObject, timeout: u64, count: usize) -> *const LeanResult {
     let instance = INSTANCE.lock().unwrap();
     to_lean_result(Some(instance), || {
-        let ir_type = to_ir_type(typ);
+        let ir_expr = to_ir_expr(typ);
         let (tx, rx) = mpsc::channel();
 
-        let arc : Arc<Mutex<Vec<IRTerm>>> = Arc::new(Mutex::new(Vec::new()));
+        let arc : Arc<Mutex<Vec<IRExpr>>> = Arc::new(Mutex::new(Vec::new()));
         let arc_clone = arc.clone();
-        let tb = S::new(ir_type.to_type(&ES::new()));
+        let tb = S::new(ir_expr.to_expr(&ES::new()));
         let problem_bind = S::new(Bind::new(to_string(name)));
         let mut owned_linked = Vec::new();
         let prover = Prover::new(tb.downgrade(), problem_bind.downgrade(), &mut owned_linked);
@@ -517,7 +488,7 @@ pub unsafe extern "C" fn canonical(typ: *const LeanType, name: *const LeanString
         match worker.join() {
             Ok((result, last_level_steps)) => {
                 let v = arc.lock().unwrap();
-                let terms = to_lean_array(&v.iter().map(|x| to_lean_term(x) as *const LeanObject).collect());
+                let terms = to_lean_array(&v.iter().map(|x| to_lean_expr(x) as *const LeanObject).collect());
 
                 to_canonical_result(terms, result, last_level_steps) as *const LeanObject
             }
@@ -545,10 +516,10 @@ pub unsafe extern "C" fn cancel() -> *const LeanResult {
 
 /// `refine` in Lean.
 #[no_mangle]
-pub unsafe extern "C" fn refine(typ: *const LeanType) -> *const LeanResult {
+pub unsafe extern "C" fn refine(typ: *const LeanExpr) -> *const LeanResult {
     to_lean_result(None, || {
-        let ir_type = to_ir_type(typ);
-        let tb_ref = S::new(ir_type.to_type(&ES::new()));
+        let ir_expr = to_ir_expr(typ);
+        let tb_ref = S::new(ir_expr.to_expr(&ES::new()));
         let problem_bind = S::new(Bind::new("proof".to_string())); // must be stored
         let mut owned_linked = Vec::new();
         let prover = Prover::new(tb_ref.downgrade(), problem_bind.downgrade(), &mut owned_linked);
@@ -589,8 +560,8 @@ pub unsafe extern "C" fn get_refinement() -> *const LeanResult {
             Some(state) => {
                 let current = state.lock().unwrap().current.downgrade();
                 let bindings = current.borrow().gamma.linked.as_ref().unwrap().borrow().node.bindings.clone();
-                to_lean_term(
-                    &IRTerm::from_lambda::<false>(
+                to_lean_expr(
+                    &IRExpr::from_lambda::<false>(
                         Term { base: current.clone(), 
                             es: current.borrow().gamma.clone() },
                         bindings,
@@ -603,9 +574,9 @@ pub unsafe extern "C" fn get_refinement() -> *const LeanResult {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn save_typ(typ: *const LeanType, file: *const LeanStringObject) -> *const LeanResult {
-    let ir_type = to_ir_type(typ);
-    ir_type.save(to_string(file));
+pub unsafe extern "C" fn save_typ(typ: *const LeanExpr, file: *const LeanStringObject) -> *const LeanResult {
+    let ir_expr = to_ir_expr(typ);
+    ir_expr.save(to_string(file));
     lean_io_result_mk_ok(lean_box(0))
 }
 

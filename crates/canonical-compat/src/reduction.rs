@@ -7,20 +7,7 @@ struct Build {
     pub arguments: HashSet<String>
 }
 
-impl IRTerm {
-    pub fn add_local(&self, es: &ES, owned_linked: &mut Vec<S<Linked>>) -> (ES, S<Indexed<S<Bind>>>) {
-        let bindings = S::new(Indexed {
-            params: self.params.iter().map(|v| S::new(v.to_bind())).collect(),
-            lets: self.lets.iter().map(|d| S::new(d.to_bind())).collect()
-        });
-
-        let node = Node { 
-            entry: Entry { params_id: next_u64(), lets_id: next_u64(), subst: None, context: None }, 
-            bindings: bindings.downgrade() 
-        };
-        (es.append(node, owned_linked), bindings)
-    }
-
+impl IRExpr {
     pub fn free_variables(&self, es: &ES, result: &mut HashSet<String>) {
         let mut owned_linked = Vec::new();
         // This function just returns strings, so the bindings don't need to be saved.

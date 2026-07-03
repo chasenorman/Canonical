@@ -34,25 +34,28 @@ pub struct IREquation {
     pub is_redex: bool
 }
 
-/// A let declaration, with a variable and value. -/
+/// A declaration, with a variable `name`, optional `typ`, and defining `equations`.
 #[derive(PartialEq, Eq, Serialize, Deserialize)]
 pub struct IRDecl {
     pub name: String,
+    pub typ: Option<IRExpr>,
     pub equations: Vec<IREquation>
 }
 
 #[derive(PartialEq, Eq, Serialize, Deserialize)]
 pub struct IRSpine {
     pub head: String,
-    pub args: Vec<IRTerm>,
+    pub args: Vec<IRExpr>,
     #[serde(skip)]
     pub premise_rules: Vec<String>
 }
 
-/// A term is an n-ary, β-normal, η-long λ expression: 
-/// `λ params lets . head args`
+/// An expression is an n-ary, β-normal, η-long λ expression:
+/// `λ params lets . head args`.
+/// Read as a type, it is an n-ary Π-type with codomain `spine`,
+/// where the declarations carry the domain types.
 #[derive(PartialEq, Eq, Serialize, Deserialize)]
-pub struct IRTerm {
+pub struct IRExpr {
     pub params: Vec<IRDecl>,
     pub lets: Vec<IRDecl>,
     pub spine: IRSpine,
@@ -60,16 +63,26 @@ pub struct IRTerm {
     pub goal_rules: Vec<String>
 }
 
-/// A type is an n-ary Π-type: `Π params lets . codomain`
-#[derive(Serialize, Deserialize)]
-pub struct IRType {
-    pub params: Vec<Option<IRType>>,
-    pub lets: Vec<Option<IRType>>,
-    pub codomain: IRTerm,
-}
-
 impl IRDecl {
     pub fn to_bind(&self) -> Bind { Bind::new(self.name.clone()) }
+
+    /// Translate this declaration, compiling `equations` into `bind` and converting `typ`.
+    /// Equations on a let (`LET`) define reduction, as rewrite rules and redexes;
+    /// equations on a param constrain the instantiation of its variables, checked as `Equation`s.
+    fn translate<const LET: bool>(&self, bind: &mut S<Bind>, es: &ES, owned_linked: &mut Vec<S<Linked>>) -> Option<S<TypeBase>> {
+        if LET {
+            let mut owned_bindings = Vec::new();
+            bind.borrow_mut().rules = to_rules(&self.equations, es, owned_linked, &mut owned_bindings);
+            bind.borrow_mut().redexes = to_redexes(&self.equations, es);
+            bind.borrow_mut().owned_bindings = owned_bindings;
+        } else {
+            bind.borrow_mut().constraints = self.equations.iter().map(|c| (
+                S::new(c.lhs.to_body(es.clone(), S::new(Indexed { params: Vec::new(), lets: Vec::new() }), Vec::new())),
+                S::new(c.rhs.to_body(es.clone(), S::new(Indexed { params: Vec::new(), lets: Vec::new() }), Vec::new()))
+            )).collect();
+        }
+        self.typ.as_ref().map(|t| S::new(t.to_expr(es)))
+    }
 }
 
 fn get_rules(term: &Term) -> Vec<String> {
@@ -133,7 +146,7 @@ impl IRSpine {
                         bindings: wbindings.clone()
                     }, &mut owned_linked);
                     _owned_bindings.push(bindings);
-                    IRTerm::from_lambda::<RULES>(Term { base: arg.downgrade(), es }, wbindings.clone(), html)
+                    IRExpr::from_lambda::<RULES>(Term { base: arg.downgrade(), es }, wbindings.clone(), html)
                 }).collect();
 
                 IRSpine {
@@ -160,7 +173,7 @@ impl IRSpine {
                         bindings: wbindings.clone()
                     }, &mut owned_linked);
                     _owned_bindings.push(bindings);
-                    args.push(IRTerm::from_lambda::<RULES>(Term { base: arg, es }, wbindings.clone(), false))
+                    args.push(IRExpr::from_lambda::<RULES>(Term { base: arg, es }, wbindings.clone(), false))
                 }
             }
         }
@@ -211,7 +224,7 @@ impl IRSpine {
     /// Finds the head `DeBruijnIndex` in the `es` and creates a Meta with `bindings` and recursively converted arguments.
     pub fn to_body(&self, es: ES, bindings: S<Indexed<S<Bind>>>, owned_linked: Vec<S<Linked>>) -> Meta {
         let (head, bind) = es.index_of(&self.head).expect(&format!("Undeclared variable: {}", self.head));
-        let args = self.args.iter().map(|t| S::new(t.to_term(&es))).collect();
+        let args = self.args.iter().map(|t| t.to_term(&es)).collect();
  
         Meta {
             assignment: Some(Assignment { head, args, bind, changes: Vec::new(), _owned_linked: owned_linked, has_rigid_type: true, var_type: None }),
@@ -230,67 +243,54 @@ impl IRSpine {
     }
 }
 
-impl IRTerm {
-    /// Return a version of `es` with `self.lets` and `params`.
-    pub fn extend_es(&self, es: &ES, owned_linked: &mut Vec<S<Linked>>, params: &[IRDecl]) -> (ES, S<Indexed<S<Bind>>>) {
-        let mut bindings = S::new(Indexed {
-            params: params.iter().map(|v| S::new(v.to_bind())).collect(),
+impl IRExpr {
+    /// Extend `es` with fresh `Bind`s for `self.params` and `self.lets`, without compiling equations.
+    pub fn add_local(&self, es: &ES, owned_linked: &mut Vec<S<Linked>>) -> (ES, S<Indexed<S<Bind>>>) {
+        let bindings = S::new(Indexed {
+            params: self.params.iter().map(|d| S::new(d.to_bind())).collect(),
             lets: self.lets.iter().map(|d| S::new(d.to_bind())).collect()
         });
 
-        let node = Node { 
-            entry: Entry { params_id: next_u64(), lets_id: next_u64(), subst: None, context: None }, 
-            bindings: bindings.downgrade() 
+        let node = Node {
+            entry: Entry { params_id: next_u64(), lets_id: next_u64(), subst: None, context: None },
+            bindings: bindings.downgrade()
         };
-        let es = es.append(node, owned_linked);
-
-        for (i, d) in self.params.iter().enumerate() {
-            bindings.borrow_mut().params[i].borrow_mut().constraints = d.equations.iter().map(|c| (
-                S::new(c.lhs.to_body(es.clone(), S::new(Indexed { params: Vec::new(), lets: Vec::new() }), Vec::new())), 
-                S::new(c.rhs.to_body(es.clone(), S::new(Indexed { params: Vec::new(), lets: Vec::new() }), Vec::new()))
-            )).collect()
-        }
-
-        // Use the extended ES to resolve the values of the lets. 
-        for (i, d) in self.lets.iter().enumerate() {
-            let mut owned_bindings = Vec::new();
-            bindings.borrow_mut().lets[i].borrow_mut().rules = to_rules(&d.equations, &es, owned_linked, &mut owned_bindings);
-            bindings.borrow_mut().lets[i].borrow_mut().redexes = to_redexes(&d.equations, &es);
-            bindings.borrow_mut().lets[i].borrow_mut().owned_bindings = owned_bindings;
-        }
-        (es, bindings)
+        (es.append(node, owned_linked), bindings)
     }
 
-    pub fn to_term(&self, es: &ES) -> Meta {
+    /// Convert to a `TypeBase`, translating each declaration in the extended ES:
+    /// `self.spine` is the codomain and the declarations' types are the domain.
+    pub fn to_expr(&self, es: &ES) -> TypeBase {
         let mut owned_linked = Vec::new();
-        let (es, bindings) = self.extend_es(es, &mut owned_linked, &self.params);
-        self.spine.to_body(es, bindings, owned_linked)
-    }
+        let (es, mut bindings) = self.add_local(es, &mut owned_linked);
 
-    pub fn from_lambda<const RULES: bool>(term: Term, bindings: W<Indexed<S<Bind>>>, html: bool) -> IRTerm {
-        let mut owned_linked = Vec::new();
-        let params = bindings.borrow().params.iter().map(|b| IRDecl { name: b.borrow().name.clone(), equations: Vec::new() }).collect();
-        let lets = bindings.borrow().lets.iter().map(|b| 
-            IRDecl { name: b.borrow().name.clone(), equations: Vec::new() }).collect();
-        let goal_rules = term.base.borrow().typ.as_ref().map(|typ| get_rules(&typ.codomain())).unwrap_or_default();
-        // TODO special WHNF that does not get stuck and does not unfold definitions
-        IRTerm { params, lets, spine: IRSpine::from_body::<RULES>(term.whnf::<RULES, ()>(&mut owned_linked, &mut ()), html), goal_rules }
-    }
-}
-
-impl IRType {
-    pub fn to_type(&self, es: &ES) -> TypeBase {
-        let codomain = self.codomain.to_term(es);
-
-        let params : Vec<Option<S<TypeBase>>> = self.params.iter().map(|t| 
-            t.as_ref().map(|t| S::new(t.to_type(&codomain.gamma)))).collect();
-        let lets : Vec<Option<S<TypeBase>>> = self.lets.iter().map(|t|
-             t.as_ref().map(|t| S::new(t.to_type(&codomain.gamma)))).collect();
+        let types = Indexed {
+            params: bindings.borrow_mut().params.iter_mut().zip(self.params.iter())
+                .map(|(bind, d)| d.translate::<false>(bind, &es, &mut owned_linked)).collect(),
+            lets: bindings.borrow_mut().lets.iter_mut().zip(self.lets.iter())
+                .map(|(bind, d)| d.translate::<true>(bind, &es, &mut owned_linked)).collect()
+        };
 
         TypeBase {
-            codomain: S::new(codomain),
-            types: S::new(Indexed { params, lets })
+            codomain: S::new(self.spine.to_body(es, bindings, owned_linked)),
+            types: S::new(types)
         }
+    }
+
+    /// Convert to a term, ignoring the types of the declarations.
+    pub fn to_term(&self, es: &ES) -> S<Meta> {
+        self.to_expr(es).codomain
+    }
+
+    pub fn from_lambda<const RULES: bool>(term: Term, bindings: W<Indexed<S<Bind>>>, html: bool) -> IRExpr {
+        let mut owned_linked = Vec::new();
+        let params = bindings.borrow().params.iter().map(|b|
+            IRDecl { name: b.borrow().name.clone(), typ: None, equations: Vec::new() }).collect();
+        let lets = bindings.borrow().lets.iter().map(|b|
+            IRDecl { name: b.borrow().name.clone(), typ: None, equations: Vec::new() }).collect();
+        let goal_rules = term.base.borrow().typ.as_ref().map(|typ| get_rules(&typ.codomain())).unwrap_or_default();
+        // TODO special WHNF that does not get stuck and does not unfold definitions
+        IRExpr { params, lets, spine: IRSpine::from_body::<RULES>(term.whnf::<RULES, ()>(&mut owned_linked, &mut ()), html), goal_rules }
     }
 }
 
@@ -308,7 +308,7 @@ impl fmt::Display for IRSpine {
     }
 }
 
-impl fmt::Display for IRTerm {
+impl fmt::Display for IRExpr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if !self.params.is_empty() || !self.lets.is_empty() {
             write!(f, "λ")?;
@@ -324,45 +324,48 @@ impl fmt::Display for IRTerm {
     }
 }
 
-impl fmt::Display for IRType {
+/// Displays an `IRExpr` as a Π-type rather than a λ-term.
+pub struct AsType<'a>(pub &'a IRExpr);
+
+impl fmt::Display for AsType<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.fmt(f, "\n")
+        self.0.fmt_type(f, "\n")
     }
 }
 
-impl IRType {
-    fn fmt(&self, f: &mut fmt::Formatter, sep: &str) -> fmt::Result {
-        for (typ, var) in self.params.iter().zip(self.codomain.params.iter()) {
-            write!(f, "({} : ", var.name)?;
-            match &typ {
-                Some(t) => t.fmt(f, " ")?,
+impl IRExpr {
+    fn fmt_type(&self, f: &mut fmt::Formatter, sep: &str) -> fmt::Result {
+        for d in &self.params {
+            write!(f, "({} : ", d.name)?;
+            match &d.typ {
+                Some(t) => t.fmt_type(f, " ")?,
                 None => write!(f, "*")?
             }
             write!(f, ") →{}", sep)?;
         }
-        
-        for (typ, def) in self.lets.iter().zip(self.codomain.lets.iter()) {
-            write!(f, "({} : ", def.name)?;
-            match &typ {
-                Some(t) => t.fmt(f, " ")?,
+
+        for d in &self.lets {
+            write!(f, "({} : ", d.name)?;
+            match &d.typ {
+                Some(t) => t.fmt_type(f, " ")?,
                 None => write!(f, "*")?
             }
-            write!(f, " := {:?}) →{}", def.equations, sep)?;
+            write!(f, " := {:?}) →{}", d.equations, sep)?;
         }
 
-        write!(f, "{}", self.codomain.spine)
+        write!(f, "{}", self.spine)
     }
 }
 
-impl IRType {
-    /// Save this `IRType` as JSON to `file`.
+impl IRExpr {
+    /// Save this `IRExpr` as JSON to `file`.
     pub fn save(&self, file: String) {
         let file = File::create(file).unwrap();
         serde_json::to_writer(file, self).unwrap();
     }
 
-    /// Load an `IRType` from a JSON `file`.
-    pub fn load(file: String) -> IRType {
+    /// Load an `IRExpr` from a JSON `file`.
+    pub fn load(file: String) -> IRExpr {
         let file = File::open(file).unwrap();
         serde_json::from_reader(file).unwrap()
     }

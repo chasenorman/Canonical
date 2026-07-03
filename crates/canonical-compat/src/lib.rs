@@ -9,122 +9,65 @@ pub mod ai;
 use ir::*;
 use std::time::SystemTime;
 
-/// Manually construct a IRTerm body.
+/// Manually construct an IRExpr body.
 #[allow(unused_macros)]
 macro_rules! t {
-    ($s : expr) => {
-        IRTerm {
+    ($s : expr $(, $arg : expr)*) => {
+        IRExpr {
             params: vec![],
             lets: vec![],
-            head: $s.to_string(),
-            args: vec![]
+            spine: IRSpine {
+                head: $s.to_string(),
+                args: vec![$($arg),*],
+                premise_rules: vec![]
+            },
+            goal_rules: vec![]
         }
-    };
-    ($s : expr, $($arg:expr ),*) => {
-        {let mut args = Vec::new();
-        $(
-            args.push($arg);
-        )*
-        IRTerm {
-            params: vec![],
-            lets: vec![],
-            head: $s.to_string(),
-            args
-        }}
     };
 }
 
-/// Manually construct a lambda IRTerm.
+/// Manually construct a lambda IRExpr.
 #[allow(unused_macros)]
 macro_rules! l {
-    ($params : expr, $s : expr) => {
-        IRTerm {
-            params: $params.iter().map(|name| IRVar { name: name.to_string(), irrelevant: false }).collect(),
+    ($params : expr, $s : expr $(, $arg : expr)*) => {
+        IRExpr {
+            params: $params.iter().map(|name| IRDecl { name: name.to_string(), typ: None, equations: vec![] }).collect(),
             lets: vec![],
-            head: $s.to_string(),
-            args: vec![]
+            spine: IRSpine {
+                head: $s.to_string(),
+                args: vec![$($arg),*],
+                premise_rules: vec![]
+            },
+            goal_rules: vec![]
         }
-    };
-    ($params : expr, $s : expr, $( $arg:expr ),*) => {
-        {let mut args = Vec::new();
-        $(
-            args.push($arg);
-        )*
-        IRTerm {
-            params: $params.iter().map(|name| IRVar { name: name.to_string(), irrelevant: false }).collect(),
-            lets: vec![],
-            head: $s.to_string(),
-            args
-        }}
     };
 }
 
-/// Manually construct a IRType codomain.
+/// Manually construct an IRExpr codomain.
 #[allow(unused_macros)]
 macro_rules! T {
     () => {
-        None as Option<IRType>
+        None as Option<IRExpr>
     };
-    ($s : expr) => {
-        Some(IRType {
-            params: vec![],
-            lets: vec![],
-            codomain: IRTerm {
-                params: vec![],
-                lets: vec![],
-                head: $s.to_string(),
-                args: vec![]
-            }
-        })
-    };
-    ($s : expr, $( $arg:expr ),*) => {
-        {let mut args = Vec::new();
-        $(
-            args.push($arg);
-        )*
-        Some(IRType {
-            params: vec![],
-            lets: vec![],
-            codomain: IRTerm {
-                params: vec![],
-                lets: vec![],
-                head: $s.to_string(),
-                args
-            }
-        })}
+    ($s : expr $(, $arg : expr)*) => {
+        Some(t!($s $(, $arg)*))
     };
 }
 
-/// Manually construct a Pi IRType.
+/// Manually construct a Pi IRExpr.
 #[allow(unused_macros)]
 macro_rules! P {
-    ($params : expr, $s : expr) => {
-        Some(IRType {
-            params: $params.into_iter().map(|(_, typ)| typ).collect(),
+    ($params : expr, $s : expr $(, $arg : expr)*) => {
+        Some(IRExpr {
+            params: $params.into_iter().map(|(name, typ)| IRDecl { name: name.to_string(), typ, equations: vec![] }).collect(),
             lets: vec![],
-            codomain: IRTerm {
-                params: $params.iter().map(|(name, _)| IRVar { name: name.to_string(), irrelevant: false }).collect(),
-                lets: vec![],
+            spine: IRSpine {
                 head: $s.to_string(),
-                args: vec![]
-            }
+                args: vec![$($arg),*],
+                premise_rules: vec![]
+            },
+            goal_rules: vec![]
         })
-    };
-    ($params : expr, $s : expr, $( $arg:expr ),*) => {
-        {let mut args = Vec::new();
-        $(
-            args.push($arg);
-        )*
-        Some(IRType {
-            params: $params.into_iter().map(|(_, typ)| typ).collect(),
-            lets: vec![],
-            codomain: IRTerm {
-                params: $params.iter().map(|(name, _)| IRVar { name: name.to_string(), irrelevant: false }).collect(),
-                lets: vec![],
-                head: $s.to_string(),
-                args
-            }
-        })}
     };
 }
 
@@ -132,8 +75,8 @@ macro_rules! P {
 /// You can create a json file using the `+debug` tactic option.
 #[tokio::main]
 pub async fn main() {
-    let irt = IRType::load("lean/debug.json".to_string());
-    let tb = S::new(irt.to_type(&ES::new()));
+    let irt = IRExpr::load("lean/debug.json".to_string());
+    let tb = S::new(irt.to_expr(&ES::new()));
     let problem_bind = S::new(Bind::new("proof".to_string()));
     let mut owned_linked = Vec::new();
     

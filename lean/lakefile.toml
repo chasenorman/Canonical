@@ -5,7 +5,7 @@ defaultTargets = ["Test"]
 [[require]]
 name = "Canonical"
 git = "https://github.com/chasenorman/CanonicalLean"
-rev = "v4.30.0"
+rev = "program-synthesis"
 
 [[require]]
 name = "mathlib"
