@@ -116,12 +116,12 @@ fn get_compilation_info(typ: Type, goals: &mut Vec<(Type, Vec<(Type, Index)>)>,
 
     for i in Indexed::iter(typ.0.borrow().types.borrow()) {
         if let Some(child) = typ.0.borrow().types.borrow()[i].as_ref() {
-            let child = get_compilation_info(Type(child.downgrade(), es.clone(), typ.0.borrow().codomain.borrow().bindings.borrow()[i].downgrade()), goals, polarity.opposite(), owned_linked, owned_metas);
+            let child = get_compilation_info(Type(child.downgrade(), es.clone()), goals, polarity.opposite(), owned_linked, owned_metas);
             children.push((child, i));
         }
     }
 
-    let typ = Type(typ.0.clone(), es.clone(), typ.2.clone());
+    let typ = Type(typ.0.clone(), es.clone());
 
     if matches!(polarity, Polarity::Goal) {
         goals.push((typ.clone(), children));

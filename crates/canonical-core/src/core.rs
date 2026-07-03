@@ -598,6 +598,7 @@ pub enum Polarity {
 pub struct TypeBase {
     pub codomain: S<Meta>,
     pub types: S<Indexed<Option<S<TypeBase>>>>,
+    pub bind: W<Bind>
 }
 
 impl TypeBase {
@@ -629,7 +630,7 @@ impl TypeBase {
 /// that associates a `DeBruijnIndex` with a variable or term.
 /// The `Bind` corresponds to the variable in the original problem that has this `Type`. 
 #[derive(Clone)]
-pub struct Type(pub W<TypeBase>, pub ES, pub W<Bind>);
+pub struct Type(pub W<TypeBase>, pub ES);
 
 impl Type {
     /// Get the return type, as a `Term`.
@@ -643,7 +644,6 @@ impl Type {
         Type(
             base.downgrade(), 
             self.1.append(Node {entry, bindings: base.borrow().codomain.borrow().bindings.clone() }, owned_linked),
-            self.0.borrow().codomain.borrow().bindings.borrow()[i].downgrade()
         )
     }
 }

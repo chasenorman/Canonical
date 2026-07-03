@@ -82,15 +82,20 @@ impl IRDecl {
                 S::new(c.rhs.to_body(es.clone(), S::new(Indexed { params: Vec::new(), lets: Vec::new() }), Vec::new()))
             )).collect();
         }
-        self.typ.as_ref().map(|t| S::new(t.to_expr(es)))
+        
+        self.typ.as_ref().map(|t| {
+            let (codomain, types) = t.to_expr(es);
+            S::new(TypeBase { codomain: S::new(codomain), types: S::new(types), bind: bind.downgrade() })
+        })
     }
 
     /// Translate this declaration into a metavariable to be solved, with `typ` as its `Type`.
     /// The returned `TypeBase` and `Bind` must be kept alive as long as the metavariable.
     pub fn to_meta(&self, owned_linked: &mut Vec<S<Linked>>) -> (S<Meta>, S<TypeBase>, S<Bind>) {
         let typ = self.typ.as_ref().expect(&format!("Declaration {} has no type.", self.name));
-        let tb = S::new(typ.to_expr(&ES::new()));
         let bind = S::new(self.to_bind());
+        let (codomain, types) = typ.to_expr(&ES::new());
+        let tb = S::new(TypeBase { codomain: S::new(codomain), types: S::new(types), bind: bind.downgrade() });
 
         // Recreate the node of the codomain's ES, adding `tb` as the typing context.
         let gamma = tb.borrow().codomain.borrow().gamma.clone();
@@ -100,14 +105,14 @@ impl IRDecl {
                 params_id: linked.borrow().node.entry.params_id,
                 lets_id: linked.borrow().node.entry.lets_id,
                 subst: None,
-                context: Some(Type(tb.downgrade(), gamma.clone(), bind.downgrade()))
+                context: Some(Type(tb.downgrade(), gamma.clone()))
             },
             bindings: linked.borrow().node.bindings.clone()
         };
         let es = ES::new().append(node, owned_linked);
 
-        compile(Type(tb.downgrade(), ES::new(), bind.downgrade()));
-        (S::new(Meta::new(Type(tb.downgrade(), es, bind.downgrade()))), tb, bind)
+        compile(Type(tb.downgrade(), ES::new()));
+        (S::new(Meta::new(Type(tb.downgrade(), es))), tb, bind)
     }
 }
 
@@ -204,14 +209,14 @@ impl IRSpine {
             }
         }
         IRSpine {
-            head: "?&NoBreak;".to_string() + &stuck.borrow().typ.as_ref().unwrap().2.borrow().name,
+            head: "?&NoBreak;".to_string() + &stuck.borrow().typ.as_ref().unwrap().0.borrow().bind.borrow().name,
             args,
             premise_rules: Vec::new()
         }
     }
 
     fn meta_html(meta: W<Meta>) -> String {
-        let varname = "?&NoBreak;".to_string() + &meta.borrow().typ.as_ref().unwrap().2.borrow().name;
+        let varname = "?&NoBreak;".to_string() + &meta.borrow().typ.as_ref().unwrap().0.borrow().bind.borrow().name;
         let meta_id = meta.borrow() as *const Meta as usize;
 
         let options = meta.borrow().gamma.iter_unify(
@@ -286,7 +291,7 @@ impl IRExpr {
 
     /// Convert to a `TypeBase`, translating each declaration in the extended ES:
     /// `self.spine` is the codomain and the declarations' types are the domain.
-    pub fn to_expr(&self, es: &ES) -> TypeBase {
+    pub fn to_expr(&self, es: &ES) -> (Meta, Indexed<Option<S<TypeBase>>>) {
         let mut owned_linked = Vec::new();
         let (es, mut bindings) = self.add_local(es, &mut owned_linked);
 
@@ -297,15 +302,12 @@ impl IRExpr {
                 .map(|(bind, d)| d.translate::<true>(bind, &es, &mut owned_linked)).collect()
         };
 
-        TypeBase {
-            codomain: S::new(self.spine.to_body(es, bindings, owned_linked)),
-            types: S::new(types)
-        }
+        return (self.spine.to_body(es, bindings, owned_linked), types)
     }
 
     /// Convert to a term, ignoring the types of the declarations.
     pub fn to_term(&self, es: &ES) -> S<Meta> {
-        self.to_expr(es).codomain
+        S::new(self.to_expr(es).0)
     }
 
     pub fn from_lambda<const RULES: bool>(term: Term, bindings: W<Indexed<S<Bind>>>, html: bool) -> IRExpr {

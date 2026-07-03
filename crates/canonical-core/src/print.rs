@@ -52,7 +52,7 @@ impl fmt::Display for WHNF {
             }
             None => { 
                 if let Some(typ) = &self.0.base.borrow().typ {
-                    write!(f, "?{}", typ.2.borrow().name.clone())
+                    write!(f, "?{}", typ.0.borrow().bind.borrow().name.clone())
                 } else {
                     write!(f, "?")
                 }

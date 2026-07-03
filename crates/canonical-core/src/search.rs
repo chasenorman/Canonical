@@ -38,7 +38,7 @@ pub fn test(head: DeBruijnIndex, curr: W<Linked>, mut meta: W<Meta>) -> Option<O
     let var_type = curr.borrow().node.entry.context.as_ref().unwrap().get(head.1, Entry::subst(Subst(WVec::new(&args), gamma.clone())), &mut _owned_linked);
 
     meta.borrow_mut().assignment = Some(Assignment {
-        head, args, bind: var_type.2.clone(), changes: Vec::new(), _owned_linked,
+        head, args, bind: var_type.0.borrow().bind.clone(), changes: Vec::new(), _owned_linked,
         has_rigid_type: matches!(var_type.codomain().whnf::<true, ()>(&mut Vec::new(), &mut ()).1, Head::Var(_)),
         var_type: Some(var_type.clone()),
     });
@@ -60,7 +60,7 @@ pub fn test(head: DeBruijnIndex, curr: W<Linked>, mut meta: W<Meta>) -> Option<O
         let typ = var_type.get(Index::Param(i), 
             Entry { params_id: var_id, lets_id: let_id, subst: None, context: None }, &mut assignment._owned_linked
         );
-        arg.constraints = typ.2.borrow().constraints.iter().map(|(p, g)| {
+        arg.constraints = typ.0.borrow().bind.borrow().constraints.iter().map(|(p, g)| {
             let result: Box<dyn Constraint> = Box::new(Equation { premise: Term { base: p.downgrade(), es: typ.1.clone() }, goal: Term { base: g.downgrade(), es: typ.1.clone() }});
             result
         }).collect();
