@@ -85,29 +85,29 @@ impl IRDecl {
         decl.borrow_mut().typ = self.typ.as_ref().map(|t| t.to_expr(es));
     }
 
-    /// Translate this declaration into a metavariable to be solved, with `typ` as its `Type`.
-    /// The returned `Decl` owns the type, and must be kept alive as long as the metavariable.
-    pub fn to_meta(&self, owned_linked: &mut Vec<S<Linked>>) -> (S<Meta>, S<Decl>) {
+    /// Translate this declaration into a `Decl` to be solved for by a `Prover`.
+    /// The type and equations are typed under an ES with a dummy entry binding `self.name`,
+    /// which `Prover::new` recreates as a substitution containing the metavariable itself.
+    pub fn to_problem(&self, owned_linked: &mut Vec<S<Linked>>) -> S<Decl> {
         assert!(self.typ.is_some(), "Declaration {} has no type.", self.name);
         let mut decl = S::new(self.to_bind());
-        self.translate::<false>(&mut decl, &ES::new(), owned_linked);
 
-        // Recreate the node of the codomain's ES, adding the declaration as the typing context.
+        // The dummy entry with the name of the problem.
+        let bindings = S::new(Indexed { params: vec![S::new(self.to_bind())], lets: Vec::new() });
+        let es = ES::new().append(Node { entry: Entry::vars(next_u64()), bindings: bindings.downgrade() }, owned_linked);
+        decl.borrow_mut()._owned_bindings.push(bindings);
+
+        // Translate the type under the dummy entry, and wait to translate the equations
+        // until the second node with the variables of the type is created.
+        decl.borrow_mut().typ = Some(self.typ.as_ref().unwrap().to_expr(&es));
         let gamma = decl.borrow().typ.as_ref().unwrap().borrow().gamma.clone();
-        let linked = gamma.linked.as_ref().unwrap();
-        let node = Node {
-            entry: Entry {
-                params_id: linked.borrow().node.entry.params_id,
-                lets_id: linked.borrow().node.entry.lets_id,
-                subst: None,
-                context: Some(Type(decl.downgrade(), gamma.clone()))
-            },
-            bindings: linked.borrow().node.bindings.clone()
-        };
-        let es = ES::new().append(node, owned_linked);
+        decl.borrow_mut().constraints = self.equations.iter().map(|c| (
+            S::new(c.lhs.to_body(gamma.clone(), S::new(Indexed { params: Vec::new(), lets: Vec::new() }), Vec::new())),
+            S::new(c.rhs.to_body(gamma.clone(), S::new(Indexed { params: Vec::new(), lets: Vec::new() }), Vec::new()))
+        )).collect();
 
-        compile(Type(decl.downgrade(), ES::new()));
-        (S::new(Meta::new(Type(decl.downgrade(), es))), decl)
+        compile(Type(decl.downgrade(), es));
+        decl
     }
 }
 

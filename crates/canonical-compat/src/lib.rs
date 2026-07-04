@@ -77,16 +77,17 @@ pub async fn main() {
     let problem = IRDecl::load("lean/debug.json".to_string());
     let mut owned_linked = Vec::new();
 
-    let (meta, _decl) = problem.to_meta(&mut owned_linked);
-    let prover = Prover { next_root: meta.downgrade(), meta };
+    let decl = problem.to_problem(&mut owned_linked);
+    let prover = Prover::new(decl.downgrade());
     // let state = AppState {
-    //     current: prover.meta,
+    //     current: Meta::try_clone(prover.metas[0].downgrade()).unwrap().0,
     //     undo: Vec::new(),
     //     redo: Vec::new(),
     //     autofill: true,
     //     constraints: false,
     //     _owned_linked: owned_linked,
-    //     _owned_bind: _decl
+    //     _owned_bind: decl,
+    //     _owned_provers: vec![prover]
     // };
 
     // start_server(state).await;
