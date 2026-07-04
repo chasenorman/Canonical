@@ -71,10 +71,11 @@ impl Prover {
 
         // Place the type and equations of the declaration on the metavariable.
         metas[0].borrow_mut().gamma = gamma;
-        metas[0].borrow_mut().constraints = decl.borrow().constraints.iter().map(|(premise, goal)| {
+        metas[0].borrow_mut().constraints = decl.borrow().constraints.iter().map(|(premise, goal, allow_redexes)| {
             let constraint: Box<dyn Constraint> = Box::new(Equation {
                 premise: Term { base: premise.downgrade(), es: typ.1.clone() },
-                goal: Term { base: goal.downgrade(), es: typ.1.clone() }
+                goal: Term { base: goal.downgrade(), es: typ.1.clone() },
+                allow_redexes: *allow_redexes
             });
             constraint
         }).collect();

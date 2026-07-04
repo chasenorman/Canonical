@@ -40,7 +40,7 @@ pub fn unify(goal: Term, premise: Term, depth: u32) -> bool {
     let mut owned_linked = Vec::new();
     // println!("Unify depth {}: {:} = {:}", depth, goal.whnf::<true, ()>(&mut owned_linked, &mut ()), 
         // premise.whnf::<true, ()>(&mut owned_linked, &mut ()));
-    let eq = Equation { goal: goal.clone(), premise: premise.clone() };
+    let eq = Equation { goal: goal.clone(), premise: premise.clone(), allow_redexes: false };
     let success = eq.reduce(&mut Vec::new(), &mut Vec::new(), &mut Vec::new());
     if !success { return false; }
     match (get_type(goal, &mut owned_linked), get_type(premise, &mut owned_linked)) {

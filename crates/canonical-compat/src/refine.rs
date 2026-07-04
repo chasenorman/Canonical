@@ -98,7 +98,7 @@ async fn term(State(state): State<Arc<Mutex<AppState>>>) -> Json<serde_json::Val
     };
     let meta = state.current.downgrade();
     let mut owned_linked = Vec::new();
-    let term = IRSpine::from_body::<false>(Term { base: meta.clone(), es: meta.borrow().gamma.clone() }.whnf::<false, ()>(&mut owned_linked, &mut ()), true);
+    let term = IRSpine::from_body::<false>(Term { base: meta.clone(), es: meta.borrow().gamma.clone() }.whnf::<false, ()>(&mut owned_linked, &mut (), false), true);
     let html = term.to_string();
     let next = Meta::next(meta)
         .next

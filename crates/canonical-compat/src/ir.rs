@@ -12,8 +12,8 @@ use std::any::Any;
 /// Render a constraint stuck on a metavariable for the debug tooltip, recovering its concrete type.
 fn constraint_html(c: &dyn Constraint, owned_linked: &mut Vec<S<Linked>>) -> String {
     if let Some(eqn) = (c as &dyn Any).downcast_ref::<Equation>() {
-        let lhs = IRSpine::from_body::<true>(eqn.premise.whnf::<true, ()>(owned_linked, &mut ()), false);
-        let rhs = IRSpine::from_body::<true>(eqn.goal.whnf::<true, ()>(owned_linked, &mut ()), false);
+        let lhs = IRSpine::from_body::<true>(eqn.premise.whnf::<true, ()>(owned_linked, &mut (), eqn.allow_redexes), false);
+        let rhs = IRSpine::from_body::<true>(eqn.goal.whnf::<true, ()>(owned_linked, &mut (), eqn.allow_redexes), false);
         format!("<div class='constraint'>{lhs} ≡ {rhs}</div>")
     } else if let Some(redex) = (c as &dyn Any).downcast_ref::<RedexConstraint>() {
         let path = (redex.position..redex.instructions.len())
@@ -79,7 +79,8 @@ impl IRDecl {
         } else {
             decl.borrow_mut().constraints = self.equations.iter().map(|c| (
                 S::new(c.lhs.to_body(es.clone(), S::new(Indexed { params: Vec::new(), lets: Vec::new() }), Vec::new())),
-                S::new(c.rhs.to_body(es.clone(), S::new(Indexed { params: Vec::new(), lets: Vec::new() }), Vec::new()))
+                S::new(c.rhs.to_body(es.clone(), S::new(Indexed { params: Vec::new(), lets: Vec::new() }), Vec::new())),
+                c.is_redex
             )).collect();
         }
         decl.borrow_mut().typ = self.typ.as_ref().map(|t| t.to_expr(es));
@@ -103,7 +104,8 @@ impl IRDecl {
         let gamma = decl.borrow().typ.as_ref().unwrap().borrow().gamma.clone();
         decl.borrow_mut().constraints = self.equations.iter().map(|c| (
             S::new(c.lhs.to_body(gamma.clone(), S::new(Indexed { params: Vec::new(), lets: Vec::new() }), Vec::new())),
-            S::new(c.rhs.to_body(gamma.clone(), S::new(Indexed { params: Vec::new(), lets: Vec::new() }), Vec::new()))
+            S::new(c.rhs.to_body(gamma.clone(), S::new(Indexed { params: Vec::new(), lets: Vec::new() }), Vec::new())),
+            c.is_redex
         )).collect();
 
         compile(Type(decl.downgrade(), es));
@@ -119,7 +121,7 @@ fn get_rules(term: &Term) -> Vec<String> {
 }
 
 fn _get_rules(term: &Term, attribution: &mut Vec<String>, owned_linked: &mut Vec<S<Linked>>) {
-    let whnf = term.whnf::<true, Vec<String>>(owned_linked, attribution);
+    let whnf = term.whnf::<true, Vec<String>>(owned_linked, attribution, false);
     if whnf.0.base.borrow().assignment.is_some() {
         let len = whnf.0.base.borrow().assignment.as_ref().unwrap().args.len();
         for i in 0..len {
@@ -231,7 +233,7 @@ impl IRSpine {
             None
         }).reduce(|a, b| format!("{a}</br>{b}")).unwrap_or("<div class='fail'>No Options</div>".to_string());
         let mut owned_linked = Vec::new();
-        let typ = IRSpine::from_body::<true>(meta.borrow().typ.as_ref().unwrap().codomain().whnf::<true, ()>(&mut owned_linked, &mut ()), false);
+        let typ = IRSpine::from_body::<true>(meta.borrow().typ.as_ref().unwrap().codomain().whnf::<true, ()>(&mut owned_linked, &mut (), false), false);
 
         let inner = meta.borrow().constraints.iter()
             .map(|c| constraint_html(c.as_ref(), &mut owned_linked))
@@ -307,7 +309,7 @@ impl IRExpr {
             IRDecl { name: b.borrow().name.clone(), typ: None, equations: Vec::new() }).collect();
         let goal_rules = term.base.borrow().typ.as_ref().map(|typ| get_rules(&typ.codomain())).unwrap_or_default();
         // TODO special WHNF that does not get stuck and does not unfold definitions
-        IRExpr { params, lets, spine: IRSpine::from_body::<RULES>(term.whnf::<RULES, ()>(&mut owned_linked, &mut ()), html), goal_rules }
+        IRExpr { params, lets, spine: IRSpine::from_body::<RULES>(term.whnf::<RULES, ()>(&mut owned_linked, &mut (), false), html), goal_rules }
     }
 }
 

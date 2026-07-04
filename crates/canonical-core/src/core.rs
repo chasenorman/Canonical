@@ -118,7 +118,7 @@ impl Meta {
         let assn = self.assignment.as_mut().unwrap();
 
         // check the type of `self` with the codomain of the `var_type
-        if (!Equation { premise: assn.var_type.as_ref().unwrap().codomain(), goal: self.typ.as_ref().unwrap().codomain() }
+        if (!Equation { premise: assn.var_type.as_ref().unwrap().codomain(), goal: self.typ.as_ref().unwrap().codomain(), allow_redexes: false }
             .reduce(&mut new_constraints, &mut assn.changes, &mut assn._owned_linked)) { return None; }
 
         if !assn.bind.borrow().redexes.iter().all(|redex|
@@ -170,7 +170,8 @@ pub struct Equation {
     /// `premise` is a subterm of the `codomain` of the `Type` of a variable
     pub premise: Term,
     /// `goal` is a subterm of the `codomain` of the `Type` of a metavariable
-    pub goal: Term
+    pub goal: Term,
+    pub allow_redexes: bool
 }
 
 #[derive(Clone)]
@@ -220,9 +221,9 @@ impl Constraint for Equation {
               owned_linked: &mut Vec<S<Linked>>) -> bool {
         if owned_linked.len() > 1000 { return false }
         // Reduce both sides of the equation.
-        match self.premise.whnf::<true, ()>(owned_linked, &mut ()) {
+        match self.premise.whnf::<true, ()>(owned_linked, &mut (), self.allow_redexes) {
             WHNF(premise, Head::Var(lhs)) => {
-                match self.goal.whnf::<true, ()>(owned_linked, &mut ()) {
+                match self.goal.whnf::<true, ()>(owned_linked, &mut (), self.allow_redexes) {
                     WHNF(goal, Head::Var(rhs)) => {
                         // If the head symbols are not equal, the equation is violated.
                         if !lhs.eq(&rhs) { return false }
@@ -234,13 +235,14 @@ impl Constraint for Equation {
                         (0..premise.base.borrow().assignment.as_ref().unwrap().args.len()).all(|i|
                             Equation {
                                 premise: premise.arg(i, Entry::vars(var_id), owned_linked),
-                                goal: goal.arg(i, Entry::vars(var_id), owned_linked)
+                                goal: goal.arg(i, Entry::vars(var_id), owned_linked),
+                                allow_redexes: self.allow_redexes
                             }.reduce(constraints, changes, owned_linked)
                         )
                     }
                     WHNF(goal, Head::Meta(rhs)) => {
                         // goal is stuck, add an equation associated with goal_meta.
-                        constraints.push(Box::new(Equation { premise, goal }));
+                        constraints.push(Box::new(Equation { premise, goal, allow_redexes: self.allow_redexes }));
                         changes.push(rhs);
                         true
                     }
@@ -248,7 +250,7 @@ impl Constraint for Equation {
             }
             WHNF(premise, Head::Meta(lhs)) => {
                 // premise is stuck, add an equation associated with premise_meta.
-                constraints.push(Box::new(Equation { premise, goal: self.goal.clone() }));
+                constraints.push(Box::new(Equation { premise, goal: self.goal.clone(), allow_redexes: self.allow_redexes }));
                 changes.push(lhs);
                 true
             }
@@ -256,8 +258,8 @@ impl Constraint for Equation {
     }
 
     fn rigid(&self) -> bool {
-        matches!(self.premise.whnf::<true, ()>(&mut Vec::new(), &mut ()).1, Head::Var(_)) ||
-        matches!(self.goal.whnf::<true, ()>(&mut Vec::new(), &mut ()).1, Head::Var(_))
+        matches!(self.premise.whnf::<true, ()>(&mut Vec::new(), &mut (), self.allow_redexes).1, Head::Var(_)) ||
+        matches!(self.goal.whnf::<true, ()>(&mut Vec::new(), &mut (), self.allow_redexes).1, Head::Var(_))
     }
 }
 
@@ -334,7 +336,7 @@ pub struct Rule {
 
 pub struct Decl {
     pub name: String,
-    pub constraints: Vec<(S<Meta>, S<Meta>)>,
+    pub constraints: Vec<(S<Meta>, S<Meta>, bool)>,
     pub rules: Vec<Rule>,
     pub redexes: Vec<Vec<Instruction>>,
     pub typ: Option<S<Meta>>,
@@ -509,8 +511,8 @@ impl Term {
         Term { es: self.es.append(Node { entry, bindings: base.borrow().bindings.clone() }, owned_linked), base }
     }
 
-    /// Computes the weak head normal form. 
-    pub fn whnf<const RULES: bool, C: Attribution>(&self, owned_linked: &mut Vec<S<Linked>>, attribution: &mut C) -> WHNF {
+    /// Computes the weak head normal form.
+    pub fn whnf<const RULES: bool, C: Attribution>(&self, owned_linked: &mut Vec<S<Linked>>, attribution: &mut C, allow_redexes: bool) -> WHNF {
         guard_overflow();
         if let Some(assn) = &self.base.borrow().assignment {
             let es = self.es.sub_es(assn.head.0);
@@ -520,7 +522,7 @@ impl Term {
                 if let Some(subst) = &es.linked.as_ref().unwrap().borrow().node.entry.subst {
                     let lets_id = subst.0[i].borrow().gamma.linked.as_ref().map_or_else(next_u64, |linked| linked.borrow().node.entry.lets_id);
                     let term = subst.get(i, Entry::subst(Subst(WVec::new(&assn.args), self.es.clone()), lets_id), owned_linked);
-                    return term.whnf::<RULES, C>(owned_linked, attribution);
+                    return term.whnf::<RULES, C>(owned_linked, attribution, allow_redexes);
                 }
             }
 
@@ -534,10 +536,10 @@ impl Term {
                     rule: &rule
                 }).collect();
                 let mut stuck : Option<W<Meta>> = None;
-                let matched = whnf.pattern_match(&mut matchers, owned_linked, attribution, whnf.0.base.borrow().from_original_problem, &mut stuck);
+                let matched = whnf.pattern_match(&mut matchers, owned_linked, attribution, allow_redexes || whnf.0.base.borrow().from_original_problem, &mut stuck);
                 if let ControlFlow::Break((term, rule)) = matched {
                     attribution.attribute(rule);
-                    return term.whnf::<RULES, C>(owned_linked, attribution);
+                    return term.whnf::<RULES, C>(owned_linked, attribution, allow_redexes);
                 }
                 if let Some(meta) = stuck {
                     return WHNF(self.clone(), Head::Meta(meta));
@@ -587,7 +589,7 @@ impl <'a> WHNF {
                 if let Some(ordering) = ordering {
                     for &i in ordering {
                         let arg = self.0.arg(i, Entry::vars(next_u64()), owned_linked);
-                        arg.whnf::<true, C>(owned_linked, attribution).pattern_match(&mut recursive, owned_linked, attribution, can_stuck, stuck)?;
+                        arg.whnf::<true, C>(owned_linked, attribution, can_stuck).pattern_match(&mut recursive, owned_linked, attribution, can_stuck, stuck)?;
                         if recursive.is_empty() { break; }
                     }
                 }
