@@ -28,8 +28,8 @@ fn get_type(term: Term, owned_linked: &mut Vec<S<Linked>>) -> Option<Term> {
     
     return Some(Term {
         base: tb.downgrade(),
-        es: sub_es.append(Node { 
-            entry: Entry::subst(Subst(WVec::new(&assn.args), term.es.clone())), 
+        es: sub_es.append(Node {
+            entry: Entry::subst(Subst(WVec::new(&assn.args), term.es.clone()), next_u64()),
             bindings: tb.borrow().bindings.clone()
         }, owned_linked)
     })

@@ -366,10 +366,10 @@ pub struct Entry {
 
 impl Entry {
     /// Creates a substitution entry.
-    pub fn subst(subst: Subst) -> Self {
+    pub fn subst(subst: Subst, lets_id: u64) -> Self {
         Self {
             params_id: next_u64(),
-            lets_id: next_u64(),
+            lets_id,
             subst: Some(subst),
             context: None
         }
@@ -432,7 +432,7 @@ impl ES {
         }
         ES { linked: Some(curr.to_owned()) }
     }
-    
+
     /// Gets the variable at the root of this ES at the given `index`
     pub fn get_var(&self, index: Index) -> Var {
         let node = &self.linked.as_ref().unwrap().borrow().node;
@@ -518,8 +518,8 @@ impl Term {
             // If there is a term at the head, recursively reduce it. Otherwise, the variable is the head symbol.
             if let Param(i) = assn.head.1 {
                 if let Some(subst) = &es.linked.as_ref().unwrap().borrow().node.entry.subst {
-                    // If there is a substitution, and the index is a parameter, return the associated term in the substitution. 
-                    let term = subst.get(i, Entry::subst(Subst(WVec::new(&assn.args), self.es.clone())), owned_linked);
+                    let lets_id = subst.0[i].borrow().gamma.linked.as_ref().map_or_else(next_u64, |linked| linked.borrow().node.entry.lets_id);
+                    let term = subst.get(i, Entry::subst(Subst(WVec::new(&assn.args), self.es.clone()), lets_id), owned_linked);
                     return term.whnf::<RULES, C>(owned_linked, attribution);
                 }
             }
@@ -573,7 +573,7 @@ impl <'a> WHNF {
                         if symbol.bind.eq(&var.bind) {
                             ordering = Some(&symbol.children);
                             matcher.replacement.es = matcher.replacement.es.append(Node {
-                                entry: Entry::subst(Subst(WVec::new(&self.0.base.borrow().assignment.as_ref().unwrap().args), self.0.es.clone())),
+                                entry: Entry::subst(Subst(WVec::new(&self.0.base.borrow().assignment.as_ref().unwrap().args), self.0.es.clone()), next_u64()),
                                 bindings: symbol.bindings.downgrade()
                             }, owned_linked);
                             if matcher.pattern.len() == 0 {

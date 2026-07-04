@@ -35,7 +35,7 @@ pub fn test(head: DeBruijnIndex, curr: W<Linked>, mut meta: W<Meta>) -> Option<O
     let args: Vec<S<Meta>> = tb.borrow().args_metas(Some(meta.clone()));
     let gamma = meta.borrow().gamma.clone();
     let mut _owned_linked = Vec::new();
-    let var_type = curr.borrow().node.entry.context.as_ref().unwrap().get(head.1, Entry::subst(Subst(WVec::new(&args), gamma.clone())), &mut _owned_linked);
+    let var_type = curr.borrow().node.entry.context.as_ref().unwrap().get(head.1, Entry::subst(Subst(WVec::new(&args), gamma.clone()), next_u64()), &mut _owned_linked);
 
     meta.borrow_mut().assignment = Some(Assignment {
         head, args, bind: var_type.0.clone(), changes: Vec::new(), _owned_linked,
@@ -64,9 +64,9 @@ pub fn test(head: DeBruijnIndex, curr: W<Linked>, mut meta: W<Meta>) -> Option<O
             let result: Box<dyn Constraint> = Box::new(Equation { premise: Term { base: p.downgrade(), es: typ.1.clone() }, goal: Term { base: g.downgrade(), es: typ.1.clone() }});
             result
         }).collect();
-        arg.gamma = gamma.append(Node { 
-            entry: Entry { params_id: var_id, lets_id: let_id, subst: None, context: Some(typ.clone()) }, 
-            bindings: arg.bindings.clone() 
+        arg.gamma = gamma.append(Node {
+            entry: Entry { params_id: var_id, lets_id: let_id, subst: None, context: Some(typ.clone()) },
+            bindings: arg.bindings.clone()
         }, &mut assignment._owned_linked);
         arg.typ = Some(typ);
     }
