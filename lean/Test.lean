@@ -4,14 +4,10 @@ import Lean
 
 open Qq Lean Meta
 
-#check Canonical.toRule
-
 def test : MetaM Unit := do
   let goal : Expr := q(Nat → Nat → Nat)
   let typ ← Canonical.withArityUnfold true do
     Canonical.toCanonical goal #[] #[] {}
-
-  dbg_trace typ
 
   let zero := { head := "Nat.zero" }
   let one := { head := "Nat.succ", args := #[ { spine := zero } ] }
@@ -32,11 +28,11 @@ def test : MetaM Unit := do
     rhs := two
   }] }
 
-  let _ ← Canonical.save_problem decl "debug.json"
-
   let result ← Canonical.runCanonical decl 3 {}
 
-  dbg_trace result.terms
+  match result.terms[0]? with
+  | some t => dbg_trace t.spine
+  | none => dbg_trace "no term found"
 
 
 #eval do test
