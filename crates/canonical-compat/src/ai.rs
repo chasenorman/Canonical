@@ -49,8 +49,16 @@ impl Example {
 
 #[derive(Serialize, Deserialize)]
 pub struct Inference {
+    /// The top-level name of the problem.
+    pub name: String,
     pub problem: IRType,
-    pub unifications: HashMap<String, HashMap<String, f64>>
+    pub unifications: HashMap<String, HashMap<String, f64>>,
+    pub tokens: Vec<Token>,
+    pub binds: HashMap<String, Vec<Position>>,
+    /// The names of the binds at goal polarity: the outer keys of `unifications`.
+    pub goals: Vec<String>,
+    /// The names of the binds at premise polarity: the inner keys of `unifications`.
+    pub premises: Vec<String>
 }
 
 impl Inference {

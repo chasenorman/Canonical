@@ -17,12 +17,12 @@ theorem Cantor (f : X → Set X) : ¬Surjective f :=
   by canonical [false_of_a_eq_not_a, congrFun]
 
 
--- inductive Vec (A : Type) : Nat → Type u where
--- | vnil  : Vec A 0
--- | vcons : A → {n : Nat} → Vec A n → Vec A (n+1)
+inductive Vec (A : Type) : Nat → Type u where
+| vnil  : Vec A 0
+| vcons : A → {n : Nat} → Vec A n → Vec A (n+1)
 
--- noncomputable def append : Vec α n → Vec α m → Vec α (m + n) :=
---   by canonical
+noncomputable def append : Vec α n → Vec α m → Vec α (m + n) :=
+  by canonical
 
 
 theorem Eq.trans' {a b c : α} (h₁ : Eq a b) (h₂ : Eq b c) : Eq a c :=

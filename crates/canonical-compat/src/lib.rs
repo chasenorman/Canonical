@@ -210,7 +210,7 @@ pub async fn main() {
         }
     });
 
-    for entry in fs::read_dir("canonical_predictions").unwrap().skip(2777) {
+    for entry in fs::read_dir("predictions-v3").unwrap() {
         let path = entry.unwrap().path();
         if path.extension().and_then(|e| e.to_str()) == Some("bin") {
             print!("{}, ", path.to_str().unwrap().to_string());
