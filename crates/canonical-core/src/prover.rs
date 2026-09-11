@@ -324,7 +324,9 @@ fn accumulate_stats(mut to: W<Meta>, from: W<Meta>) {
 impl Meta {
     /// Return a clone of this metvariable and a map of metavariables between this and the new clone, with `stats_buffer` moved into `stats`.
     pub fn try_clone(meta: W<Meta>) -> Option<(S<Meta>, HashMap<W<Meta>, W<Meta>>)> {
-        let new = S::new(Meta::new(meta.borrow().typ.as_ref().unwrap().clone()));
+        let mut new = S::new(Meta::new(meta.borrow().typ.as_ref().unwrap().clone()));
+        // The gamma of a prover's root differs from the ES of its type, so it is shared with `meta`.
+        new.borrow_mut().gamma = meta.borrow().gamma.clone();
         let mut map = HashMap::default();
         if transfer(meta, new.downgrade(), &mut map) {
             return Some((new, map))

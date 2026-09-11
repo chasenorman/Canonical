@@ -7,6 +7,7 @@ pub mod reduction;
 pub mod ai;
 use ir::*;
 use std::time::SystemTime;
+use crate::refine::{AppState, start_server};
 
 /// Manually construct an IRExpr body.
 #[allow(unused_macros)]
@@ -79,36 +80,36 @@ pub async fn main() {
 
     let decl = problem.to_problem(&mut owned_linked);
     let prover = Prover::new(decl.downgrade());
-    // let state = AppState {
-    //     current: Meta::try_clone(prover.metas[0].downgrade()).unwrap().0,
-    //     undo: Vec::new(),
-    //     redo: Vec::new(),
-    //     autofill: true,
-    //     constraints: false,
-    //     _owned_linked: owned_linked,
-    //     _owned_bind: decl,
-    //     _owned_provers: vec![prover]
-    // };
+    let state = AppState {
+        current: Meta::try_clone(prover.metas[0].downgrade()).unwrap().0,
+        undo: Vec::new(),
+        redo: Vec::new(),
+        autofill: true,
+        constraints: false,
+        _owned_linked: owned_linked,
+        _owned_bind: decl,
+        _owned_provers: vec![prover]
+    };
 
-    // start_server(state).await;
+    start_server(state).await;
 
     // Print step count each second.
-    std::thread::spawn(move || {
-        let mut prev = 0;
-        loop {
-            std::thread::sleep(std::time::Duration::from_secs(1));
-            let count = STEP_COUNT.load(std::sync::atomic::Ordering::Relaxed);
-            println!("total: {}", count);
-            println!("t/s: {}", count - prev);
-            prev = count;
-        }
-    });
+    // std::thread::spawn(move || {
+    //     let mut prev = 0;
+    //     loop {
+    //         std::thread::sleep(std::time::Duration::from_secs(1));
+    //         let count = STEP_COUNT.load(std::sync::atomic::Ordering::Relaxed);
+    //         println!("total: {}", count);
+    //         println!("t/s: {}", count - prev);
+    //         prev = count;
+    //     }
+    // });
     
-    let now = SystemTime::now();
-    prover.prove(&|term: Term| {
-        let mut owned_linked = Vec::new();
-        println!("{}", now.elapsed().unwrap().as_secs_f32());
-        println!("{}", IRSpine::from_body::<false>(term.whnf::<false, ()>(&mut owned_linked, &mut (), false), false));
-        std::process::exit(0);
-    }, true);
+    // let now = SystemTime::now();
+    // prover.prove(&|term: Term| {
+    //     let mut owned_linked = Vec::new();
+    //     println!("{}", now.elapsed().unwrap().as_secs_f32());
+    //     println!("{}", IRSpine::from_body::<false>(term.whnf::<false, ()>(&mut owned_linked, &mut (), false), false));
+    //     std::process::exit(0);
+    // }, true);
 }
