@@ -57,10 +57,7 @@ pub struct MetaInfo {
 impl MetaInfo {
     /// Collect the information of a metavaraible. 
     pub fn new(meta: W<Meta>) -> Self {
-        let has_rigid_equation = meta.borrow().equations.iter().any(|e| 
-            matches!(e.premise.whnf::<true, ()>(&mut Vec::new(), &mut ()).1, Head::Var(_)) || 
-            matches!(e.goal.whnf::<true, ()>(&mut Vec::new(), &mut ()).1, Head::Var(_))
-        );
+        let has_rigid_equation = meta.borrow().constraints.iter().any(|c| c.rigid());
         let bin = meta.borrow().typ.as_ref().unwrap().0.usize() + has_rigid_equation as usize;
         let current_stats = META_MAP.load().get(&bin).map(|x| x.clone()).unwrap_or_else(MetaStats::new);
         let mut future_stats = if has_rigid_equation { MetaStats::new() } else {
@@ -163,7 +160,7 @@ impl MetaStats {
 /// The information that may be used to determine the entropy of an assignment. 
 pub struct AssignmentInfo {
     pub meta: W<Meta>,
-    pub equations_generated: usize,
+    pub constraints_generated: usize,
     pub had_rigid_equation: bool,
     pub has_rigid_type: bool,
     bin: usize,
@@ -173,14 +170,14 @@ pub struct AssignmentInfo {
 impl AssignmentInfo {
     /// Collect the information of an assignment. 
     pub fn new(meta: W<Meta>) -> Self {
-        let equations_generated = meta.borrow().assignment.as_ref().unwrap().changes.len();
+        let constraints_generated = meta.borrow().assignment.as_ref().unwrap().changes.len();
         let had_rigid_equation = meta.borrow().has_rigid_equation;
         let has_rigid_type = meta.borrow().assignment.as_ref().unwrap().has_rigid_type;
-        let bin = meta.borrow().typ.as_ref().unwrap().0.usize() // + had_rigid_equation as usize 
+        let bin = meta.borrow().typ.as_ref().unwrap().0.usize() // + had_rigid_equation as usize
                        + meta.borrow().assignment.as_ref().unwrap().bind.usize() + (has_rigid_type as usize) << 1;
         let stats = ASSIGNMENT_MAP.load().get(&bin).map(|x| x.clone()).unwrap_or_else(AssignmentStats::new);
-        
-        AssignmentInfo { meta, equations_generated, had_rigid_equation, has_rigid_type, bin, stats }
+
+        AssignmentInfo { meta, constraints_generated, had_rigid_equation, has_rigid_type, bin, stats }
     }
 
     /// Adds new statistics information to the original `bin` of this assignment.

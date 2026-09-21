@@ -124,10 +124,10 @@ impl Prover {
         let num_jobs = NUM_JOBS.load(Ordering::Relaxed);
 
         if branching < 2 || next_result.tree_entropy > 1000.0 || num_jobs > 100 {
-            while let Some((assignment, equations, redex_constraints, info)) = iter.next() {
+            while let Some((assignment, constraints, info)) = iter.next() {
                 let meta = next.meta.borrow_mut();
                 meta.branching = total_weight / assignment.compilation_info.weight();
-                meta.assign(assignment, equations, redex_constraints);
+                meta.assign(assignment, constraints);
 
                 // Start assignment statistics.
                 meta.stats.assignment_fence();
@@ -156,11 +156,10 @@ impl Prover {
 
         // Create cloned provers for each remaining option. 
         let provers: Vec<(Prover, W<Meta>, AssignmentInfo)> = iter.filter_map(
-            |(assignment, equations, redex_constraints, info)| {
+            |(assignment, constraints, info)| {
             next.meta.borrow_mut().branching = total_weight / assignment.compilation_info.weight();
             
-            next.meta.borrow_mut().assign(assignment, equations, redex_constraints);
-
+            next.meta.borrow_mut().assign(assignment, constraints);
             let result = self.try_clone();
 
             next.meta.borrow_mut().unassign();
@@ -239,12 +238,12 @@ pub fn transfer(from: W<Meta>, mut to: W<Meta>, map: &mut HashMap<W<Meta>, W<Met
     let Some(from_assn) = &from.borrow().assignment else { return true; };
     
     let sub_es = to.borrow().gamma.sub_es(from_assn.head.0);
-    let Some(Some((to_assn, eqns, redex_constraints, _info))) = 
+    let Some(Some((to_assn, constraints, _info))) = 
         test(from_assn.head, sub_es.linked.unwrap(), to.clone(), from_assn.compilation_info) else { 
             return false; 
-        };
-    
-    to.borrow_mut().assign(to_assn, eqns, redex_constraints);
+    };
+
+    to.borrow_mut().assign(to_assn, constraints);
 
     from_assn.args.iter().zip(to.borrow().assignment.as_ref().unwrap().args.iter()).all(
         |(from_child, to_child)|

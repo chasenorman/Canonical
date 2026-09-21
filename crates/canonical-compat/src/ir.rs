@@ -8,6 +8,24 @@ use std::collections::HashMap;
 use crate::reduction::*;
 use canonical_core::stats::SearchInfo;
 use canonical_core::compiler::CompilationInfo;
+use std::any::Any;
+
+/// Render a constraint stuck on a metavariable for the debug tooltip, recovering its concrete type.
+fn constraint_html(c: &dyn Constraint, owned_linked: &mut Vec<S<Linked>>) -> String {
+    if let Some(eqn) = (c as &dyn Any).downcast_ref::<Equation>() {
+        let lhs = IRSpine::from_body::<true>(eqn.premise.whnf::<true, ()>(owned_linked, &mut ()), false);
+        let rhs = IRSpine::from_body::<true>(eqn.goal.whnf::<true, ()>(owned_linked, &mut ()), false);
+        format!("<div class='constraint'>{lhs} ≡ {rhs}</div>")
+    } else if let Some(redex) = (c as &dyn Any).downcast_ref::<RedexConstraint>() {
+        let path = (redex.position..redex.instructions.len())
+            .map(|i| redex.instructions[i].bind.borrow().name.clone())
+            .collect::<Vec<_>>()
+            .join(" → ");
+        format!("<div class='constraint'>redex: {path}</div>")
+    } else {
+        String::new()
+    }
+}
 
 /// A variable with a `name`, and whether it is proof `irrelevant` (unused).
 #[derive(PartialEq, Eq, Serialize, Deserialize, Clone)]
@@ -231,14 +249,12 @@ impl IRSpine {
         let mut owned_linked = Vec::new();
         let typ = IRSpine::from_body::<true>(meta.borrow().typ.as_ref().unwrap().codomain().whnf::<true, ()>(&mut owned_linked, &mut ()), false);
 
-        let constraints = if meta.borrow().equations.is_empty() {
+        let inner = meta.borrow().constraints.iter()
+            .map(|c| constraint_html(c.as_ref(), &mut owned_linked))
+            .fold("".to_string(), |a, b| a + &b);
+        let constraints = if inner.is_empty() {
             "".to_string()
         } else {
-            let inner = meta.borrow().equations.iter().map(|eqn| {
-                let lhs = IRSpine::from_body::<true>(eqn.premise.whnf::<true, ()>(&mut owned_linked, &mut ()), false);
-                let rhs = IRSpine::from_body::<true>(eqn.goal.whnf::<true, ()>(&mut owned_linked, &mut ()), false);
-                format!("<div class='constraint'>{lhs} ≡ {rhs}</div>")
-            }).fold("".to_string(), |a, b| a + &b);
             format!("<div class='constraints'>{inner}</div>")
         };
 
@@ -259,11 +275,10 @@ impl IRSpine {
             S::new(t.to_term(&es, &extend(position, &[Position::Arg(i)]), binds, tokens))).collect();
 
         Meta {
-            assignment: Some(Assignment { head, args, bind, changes: Vec::new(), redex_changes: Vec::new(), _owned_linked: owned_linked, has_rigid_type: true, var_type: None, compilation_info: CompilationInfo::new() }),
+            assignment: Some(Assignment { head, args, bind, changes: Vec::new(), _owned_linked: owned_linked, has_rigid_type: true, var_type: None, compilation_info: CompilationInfo::new() }),
             typ: None,
             gamma: es,
-            equations: Vec::new(),
-            redex_constraints: Vec::new(),
+            constraints: Vec::new(),
             bindings: bindings.downgrade(),
             from_original_problem: true,
             _owned_bindings: Some(bindings),

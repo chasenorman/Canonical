@@ -36,7 +36,7 @@ def continuous_function_at (f : ℝ → ℝ) (x₀ : ℝ) :=
 def sequence_tendsto (u : ℕ → ℝ) (l : ℝ) :=
   ∀ ε > 0, ∃ N, ∀ n ≥ N, |u n - l| ≤ ε
 
--- /-- Continuous functions are sequentially continuous -/
+/-- Continuous functions are sequentially continuous -/
 example (f : ℝ → ℝ) (u : ℕ → ℝ) (x₀ : ℝ)
     (hf : continuous_function_at f x₀) (hu : sequence_tendsto u x₀) :
     sequence_tendsto (f ∘ u) (f x₀) := by
