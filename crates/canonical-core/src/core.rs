@@ -3,13 +3,52 @@ use crate::memory::{S, W, WVec};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::iter;
 use crate::stats::SearchInfo;
-use mimalloc::MiMalloc;
 use std::cell::RefCell;
 use std::ops::ControlFlow;
 use core::slice::Iter;
 
+#[cfg(all(feature = "mimalloc", feature = "host-mimalloc"))]
+compile_error!("features `mimalloc` and `host-mimalloc` are mutually exclusive: \
+    a bundled mimalloc would shadow the host's `mi_*` symbols in the Lean cdylib");
+
+#[cfg(feature = "mimalloc")]
 #[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+/// mimalloc provided by the host process (Lean's runtime), bound at load time.
+/// Mirrors the `GlobalAlloc` impl of the `mimalloc` crate.
+#[cfg(feature = "host-mimalloc")]
+mod host_mimalloc {
+    use std::alloc::{GlobalAlloc, Layout};
+    use std::ffi::c_void;
+
+    extern "C" {
+        fn mi_malloc_aligned(size: usize, alignment: usize) -> *mut c_void;
+        fn mi_zalloc_aligned(size: usize, alignment: usize) -> *mut c_void;
+        fn mi_realloc_aligned(p: *mut c_void, newsize: usize, alignment: usize) -> *mut c_void;
+        fn mi_free(p: *mut c_void);
+    }
+
+    pub struct HostMiMalloc;
+
+    unsafe impl GlobalAlloc for HostMiMalloc {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            mi_malloc_aligned(layout.size(), layout.align()) as *mut u8
+        }
+        unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+            mi_zalloc_aligned(layout.size(), layout.align()) as *mut u8
+        }
+        unsafe fn dealloc(&self, ptr: *mut u8, _layout: Layout) {
+            mi_free(ptr as *mut c_void)
+        }
+        unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+            mi_realloc_aligned(ptr as *mut c_void, new_size, layout.align()) as *mut u8
+        }
+    }
+
+    #[global_allocator]
+    static GLOBAL: HostMiMalloc = HostMiMalloc;
+}
 
 /// Used to give each hardware thread a unique ID.
 static THREAD_COUNTER: AtomicU64 = AtomicU64::new(0);

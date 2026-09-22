@@ -6,9 +6,19 @@ edition.workspace = true
 [dependencies]
 string-interner = "0.19.0"
 rayon = "1.10.0"
-mimalloc = "0.1.43"
+mimalloc = { version = "0.1.43", optional = true }
 arc-swap = "1.7.1"
 once_cell = "1.20.3"
 thread_local_collect = "1.0.1"
 rustc-hash = "2.1.1"
 stacker = "0.1.23"
+
+[features]
+# Global allocator. Exactly one of these should be on:
+#  - `mimalloc`: bundle the mimalloc crate (standalone binaries).
+#  - `host-mimalloc`: call the `mi_*` functions of the process that loads us
+#    (the Lean cdylib: Lean ships mimalloc, and `lean_alloc_small_object` must
+#    use the same heap Lean frees from).
+# Neither: the system allocator.
+mimalloc = ["dep:mimalloc"]
+host-mimalloc = []
