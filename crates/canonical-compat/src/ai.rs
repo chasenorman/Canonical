@@ -1,25 +1,29 @@
-use std::collections::HashMap;
-use std::fs::File;
-use crate::ir::*;
-use serde::{Deserialize, Serialize};
+use canonical_core::core::{Bind, Position};
+use canonical_core::memory::W;
 
-#[derive(Serialize, Deserialize)]
-pub struct Example {
-    pub problem: IRType,
-    pub unifications: HashMap<String, HashMap<String, u32>>
+pub struct Tokenization {
+    pub tokens: Vec<(Vec<Position>, W<Bind>)>,
+    pub goals: Vec<W<Bind>>,
+    pub premises: Vec<W<Bind>>
 }
 
-impl Example {
-    pub fn save(self: &Example, path: String) {
-        let mut file = File::create(path).unwrap();
-        rmp_serde::encode::write(&mut file, self).unwrap();
-    }
-
-    pub fn load(path: String) -> Example {
-        let file = File::open(path).unwrap();
-        rmp_serde::decode::from_read(file).unwrap()
+impl Tokenization {
+    pub fn new() -> Tokenization {
+        Tokenization { tokens: Vec::new(), goals: Vec::new(), premises: Vec::new() }
     }
 }
+
+// impl Example {
+//     pub fn save(self: &Example, path: String) {
+//         let mut file = File::create(path).unwrap();
+//         rmp_serde::encode::write(&mut file, self).unwrap();
+//     }
+
+//     pub fn load(path: String) -> Example {
+//         let file = File::open(path).unwrap();
+//         rmp_serde::decode::from_read(file).unwrap()
+//     }
+// }
 
 // struct Token {
 //     name: String

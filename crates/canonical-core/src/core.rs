@@ -1,4 +1,5 @@
 use Index::*;
+use crate::core::Polarity::Goal;
 use crate::memory::{S, W, WVec};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::iter;
@@ -225,17 +226,7 @@ impl Constraint for RedexConstraint {
               _owned_linked: &mut Vec<S<Linked>>) -> bool {
         let mut blame = self.blame.clone();
         let mut i = self.position;
-        loop {
-            let Some(assn) = &blame.borrow().assignment else {
-                constraints.push(Box::new(RedexConstraint {
-                    instructions: self.instructions.clone(),
-                    position: i,
-                    blame: blame.clone(),
-                }));
-                changes.push(blame);
-                return true
-            };
-
+        while let Some(assn) = &blame.borrow().assignment {
             if !assn.bind.eq(&self.instructions[i].bind) {
                 return true;
             }
@@ -248,6 +239,13 @@ impl Constraint for RedexConstraint {
             blame = blame.borrow().assignment.as_ref().unwrap().args[self.instructions[i].child].downgrade();
             i += 1;
         }
+        constraints.push(Box::new(RedexConstraint {
+            instructions: self.instructions.clone(),
+            position: i,
+            blame: blame.clone(),
+        }));
+        changes.push(blame);
+        return true
     }
 }
 
@@ -361,21 +359,39 @@ pub struct Rule {
     pub attribution: Vec<String>
 }
 
+/// One step in a path through the problem, viewed as nested declarations and expressions:
+/// a declaration (a param, a let, or the root problem itself) has a `Type` and `Rule(i)`s;
+/// a rule has an `LHS` and `RHS` expression; an expression (an `IRTerm`/`IRType` together
+/// with its spine) declares `Param(i)`s and `Let(i)`s and applies its head to `Arg(i)`s.
+/// The path of an expression also identifies the occurrence of its head symbol.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum Position {
+    Type,
+    Rule(usize),
+    LHS,
+    RHS,
+    Param(usize),
+    Let(usize),
+    Arg(usize),
+}
+
 /// The `name` and `value` of a variable in the original input problem.
 pub struct Bind {
     pub name: String,
     pub rules: Vec<Rule>,
     pub redexes: Vec<Vec<Instruction>>,
+    pub position: Vec<Position>,
 
     pub owned_bindings: Vec<S<Indexed<S<Bind>>>>
 }
 
 impl Bind {
-    pub fn new(name: String) -> Self {
+    pub fn new(name: String, position: Vec<Position>) -> Self {
         Bind {
             name,
             rules: Vec::new(),
             redexes: Vec::new(),
+            position,
             owned_bindings: Vec::new()
         }
     }
@@ -626,8 +642,18 @@ impl <'a> WHNF {
     }
 }
 
+#[derive(Clone, Copy)]
 pub enum Polarity { 
     Premise, Goal
+}
+
+impl Polarity {
+    pub fn opposite(self) -> Polarity {
+        match self {
+            Polarity::Premise => Polarity::Goal,
+            Polarity::Goal => Polarity::Premise
+        }
+    }
 }
 
 /// A `DeBruijnIndex`-ed type, with a `codomain` (return type)
