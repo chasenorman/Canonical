@@ -3,13 +3,52 @@ use crate::memory::{S, W, WVec};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::iter;
 use crate::stats::SearchInfo;
-use mimalloc::MiMalloc;
 use std::cell::RefCell;
 use std::ops::ControlFlow;
 use core::slice::Iter;
 
+#[cfg(all(feature = "mimalloc", feature = "host-mimalloc"))]
+compile_error!("features `mimalloc` and `host-mimalloc` are mutually exclusive: \
+    a bundled mimalloc would shadow the host's `mi_*` symbols in the Lean cdylib");
+
+#[cfg(feature = "mimalloc")]
 #[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+/// mimalloc provided by the host process (Lean's runtime), bound at load time.
+/// Mirrors the `GlobalAlloc` impl of the `mimalloc` crate.
+#[cfg(feature = "host-mimalloc")]
+mod host_mimalloc {
+    use std::alloc::{GlobalAlloc, Layout};
+    use std::ffi::c_void;
+
+    extern "C" {
+        fn mi_malloc_aligned(size: usize, alignment: usize) -> *mut c_void;
+        fn mi_zalloc_aligned(size: usize, alignment: usize) -> *mut c_void;
+        fn mi_realloc_aligned(p: *mut c_void, newsize: usize, alignment: usize) -> *mut c_void;
+        fn mi_free(p: *mut c_void);
+    }
+
+    pub struct HostMiMalloc;
+
+    unsafe impl GlobalAlloc for HostMiMalloc {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            mi_malloc_aligned(layout.size(), layout.align()) as *mut u8
+        }
+        unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+            mi_zalloc_aligned(layout.size(), layout.align()) as *mut u8
+        }
+        unsafe fn dealloc(&self, ptr: *mut u8, _layout: Layout) {
+            mi_free(ptr as *mut c_void)
+        }
+        unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+            mi_realloc_aligned(ptr as *mut c_void, new_size, layout.align()) as *mut u8
+        }
+    }
+
+    #[global_allocator]
+    static GLOBAL: HostMiMalloc = HostMiMalloc;
+}
 
 /// Used to give each hardware thread a unique ID.
 static THREAD_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -187,17 +226,7 @@ impl Constraint for RedexConstraint {
               _owned_linked: &mut Vec<S<Linked>>) -> bool {
         let mut blame = self.blame.clone();
         let mut i = self.position;
-        loop {
-            let Some(assn) = &blame.borrow().assignment else {
-                constraints.push(Box::new(RedexConstraint {
-                    instructions: self.instructions.clone(),
-                    position: i,
-                    blame: blame.clone(),
-                }));
-                changes.push(blame);
-                return true
-            };
-
+        while let Some(assn) = &blame.borrow().assignment {
             if !assn.bind.eq(&self.instructions[i].bind) {
                 return true;
             }
@@ -210,6 +239,13 @@ impl Constraint for RedexConstraint {
             blame = blame.borrow().assignment.as_ref().unwrap().args[self.instructions[i].child].downgrade();
             i += 1;
         }
+        constraints.push(Box::new(RedexConstraint {
+            instructions: self.instructions.clone(),
+            position: i,
+            blame: blame.clone(),
+        }));
+        changes.push(blame);
+        return true
     }
 }
 
@@ -324,6 +360,22 @@ pub struct Rule {
     pub attribution: Vec<String>
 }
 
+/// One step in a path through the problem, viewed as nested declarations and expressions:
+/// a declaration (a param, a let, or the root problem itself) has a `Type` and `Rule(i)`s;
+/// a rule has an `LHS` and `RHS` expression; an expression (an `IRTerm`/`IRType` together
+/// with its spine) declares `Param(i)`s and `Let(i)`s and applies its head to `Arg(i)`s.
+/// The path of an expression also identifies the occurrence of its head symbol.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum Position {
+    Type,
+    Rule(usize),
+    LHS,
+    RHS,
+    Param(usize),
+    Let(usize),
+    Arg(usize),
+}
+
 /// The `name` and `value` of a variable in the original input problem.
 // pub struct Bind {
 //     pub name: String,
@@ -340,18 +392,20 @@ pub struct Decl {
     pub rules: Vec<Rule>,
     pub redexes: Vec<Vec<Instruction>>,
     pub typ: Option<S<Meta>>,
+    pub position: Vec<Position>,
     pub _owned_bindings: Vec<S<Indexed>>
 }
 
 impl Decl {
-    pub fn new(name: String) -> Self {
+    pub fn new(name: String, position: Vec<Position>) -> Self {
         Decl {
             name,
             constraints: Vec::new(),
             rules: Vec::new(),
             redexes: Vec::new(),
             typ: None,
-            _owned_bindings: Vec::new()
+            position,
+            _owned_bindings: Vec::new(),
         }
     }
 }
@@ -368,10 +422,10 @@ pub struct Entry {
 
 impl Entry {
     /// Creates a substitution entry.
-    pub fn subst(subst: Subst, lets_id: u64) -> Self {
+    pub fn subst(subst: Subst) -> Self {
         Self {
             params_id: next_u64(),
-            lets_id,
+            lets_id: next_u64(),
             subst: Some(subst),
             context: None
         }
@@ -520,8 +574,8 @@ impl Term {
             // If there is a term at the head, recursively reduce it. Otherwise, the variable is the head symbol.
             if let Param(i) = assn.head.1 {
                 if let Some(subst) = &es.linked.as_ref().unwrap().borrow().node.entry.subst {
-                    let lets_id = subst.0[i].borrow().gamma.linked.as_ref().map_or_else(next_u64, |linked| linked.borrow().node.entry.lets_id);
-                    let term = subst.get(i, Entry::subst(Subst(WVec::new(&assn.args), self.es.clone()), lets_id), owned_linked);
+                    // If there is a substitution, and the index is a parameter, return the associated term in the substitution.
+                    let term = subst.get(i, Entry::subst(Subst(WVec::new(&assn.args), self.es.clone())), owned_linked);
                     return term.whnf::<RULES, C>(owned_linked, attribution, allow_redexes);
                 }
             }
@@ -575,7 +629,7 @@ impl <'a> WHNF {
                         if symbol.bind.eq(&var.bind) {
                             ordering = Some(&symbol.children);
                             matcher.replacement.es = matcher.replacement.es.append(Node {
-                                entry: Entry::subst(Subst(WVec::new(&self.0.base.borrow().assignment.as_ref().unwrap().args), self.0.es.clone()), next_u64()),
+                                entry: Entry::subst(Subst(WVec::new(&self.0.base.borrow().assignment.as_ref().unwrap().args), self.0.es.clone())),
                                 bindings: symbol.bindings.downgrade()
                             }, owned_linked);
                             if matcher.pattern.len() == 0 {
@@ -601,8 +655,18 @@ impl <'a> WHNF {
     }
 }
 
+#[derive(Clone, Copy)]
 pub enum Polarity { 
     Premise, Goal
+}
+
+impl Polarity {
+    pub fn opposite(self) -> Polarity {
+        match self {
+            Polarity::Premise => Polarity::Goal,
+            Polarity::Goal => Polarity::Premise
+        }
+    }
 }
 
 /// A `DeBruijnIndex`-ed type, with a `codomain` (return type)

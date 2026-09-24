@@ -8,18 +8,6 @@ use std::iter;
 
 pub static COMPILATION: Lazy<ArcSwap<HashMap<(usize, usize), Vec<Index>>>> = Lazy::new(|| ArcSwap::from_pointee(HashMap::default()));
 
-#[derive(Clone, Copy)]
-enum Polarity { Goal, Premise }
-
-impl Polarity {
-    fn opposite(&self) -> Polarity {
-        match self {
-            Polarity::Goal => Polarity::Premise,
-            Polarity::Premise => Polarity::Goal
-        }
-    }
-}
-
 fn get_type(term: Term, owned_linked: &mut Vec<S<Linked>>) -> Option<Term> {
     let assn = term.base.borrow().assignment.as_ref().unwrap();
     let sub_es = term.es.sub_es(assn.head.0);
@@ -29,7 +17,7 @@ fn get_type(term: Term, owned_linked: &mut Vec<S<Linked>>) -> Option<Term> {
     return Some(Term {
         base: tb.downgrade(),
         es: sub_es.append(Node {
-            entry: Entry::subst(Subst(WVec::new(&assn.args), term.es.clone()), next_u64()),
+            entry: Entry::subst(Subst(WVec::new(&assn.args), term.es.clone())),
             bindings: tb.borrow().bindings.clone()
         }, owned_linked)
     })

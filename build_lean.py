@@ -24,9 +24,9 @@ else:
 
 def main():
     if SYSTEM == "Windows":
-        subprocess.run(["cargo", "build", "-p", LIB_NAME, "--release", "--target", "x86_64-pc-windows-gnu"], shell=False, check=True)
+        subprocess.run(["cargo", "build", "-p", LIB_NAME, "--release", "--features", "host-mimalloc", "--target", "x86_64-pc-windows-gnu"], shell=False, check=True)
     else:
-        subprocess.run(["cargo", "build", "-p", LIB_NAME, "--release"], shell=False, check=True)
+        subprocess.run(["cargo", "build", "-p", LIB_NAME, "--release", "--features", "host-mimalloc"], shell=False, check=True)
     shutil.copy2(TARGET, LEAN_LIB)
     
 if __name__ == "__main__":

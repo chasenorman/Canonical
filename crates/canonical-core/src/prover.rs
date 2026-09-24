@@ -10,10 +10,10 @@ use rustc_hash::FxHashMap as HashMap;
 /// The number of Rayon jobs yet to be completed.
 pub static NUM_JOBS: AtomicUsize = AtomicUsize::new(0);
 
-/// A `Prover` has a metavariable for the main goal, and a flag for `program_synthesis` mode.
+/// A `Prover` has a metavariable for the main goal.
 pub struct Prover {
-    /// The root metavariable, in a `Vec` to serve as the substitution for the problem's name.
-    pub metas: Vec<S<Meta>>,
+    /// The root metavariable.
+    pub meta: S<Meta>,
     /// In case we only want to solve a subtree of the root, this defines the root for `next`.
     pub next_root: W<Meta>,
     /// Owns the nodes of the root metavariable's ES.
@@ -24,41 +24,13 @@ unsafe impl Send for Prover {}
 unsafe impl Send for W<Meta> {}
 
 impl Prover {
-    /// Creates a `Prover` solving for `decl`, placing its type and equations on a new metavariable.
-    /// The type and equations are evaluated under an ES that recreates the declaration's gamma:
-    /// a substitution mapping the problem's name to the metavariable itself, and the variables of the type.
-    /// The metavariable's gamma contains only the variables of the type, with `decl` as the typing context.
+    /// Creates a `Prover` solving for `decl`, whose type was translated under the empty ES.
+    /// The metavariable's gamma contains the variables of the type, with `decl` as the typing context.
     pub fn new(decl: W<Decl>) -> Self {
         let mut owned_linked = Vec::new();
-        let mut metas = vec![S::new(Meta::new(Type(decl.clone(), ES::new())))];
+        let typ = Type(decl.clone(), decl.borrow().typ.as_ref().unwrap().borrow().gamma.clone());
+        let vars = typ.1.linked.clone().unwrap();
 
-        let translation = decl.borrow().typ.as_ref().unwrap().borrow().gamma.clone();
-        let vars = translation.linked.clone().unwrap();
-        let dummy = vars.borrow().tail.clone().unwrap();
-
-        // Recreate the dummy node, substituting the metavariable for the problem's name.
-        let es = ES::new().append(Node {
-            entry: Entry {
-                params_id: dummy.borrow().node.entry.params_id,
-                lets_id: dummy.borrow().node.entry.lets_id,
-                subst: Some(Subst(WVec::new(&metas), ES::new())),
-                context: None
-            },
-            bindings: dummy.borrow().node.bindings.clone()
-        }, &mut owned_linked);
-
-        // Recreate the node of the variables of the type.
-        let typ = Type(decl.clone(), es.append(Node {
-            entry: Entry {
-                params_id: vars.borrow().node.entry.params_id,
-                lets_id: vars.borrow().node.entry.lets_id,
-                subst: None,
-                context: None
-            },
-            bindings: vars.borrow().node.bindings.clone()
-        }, &mut owned_linked));
-
-        // The gamma contains only the variables of the type, with `decl` as the typing context.
         let gamma = ES::new().append(Node {
             entry: Entry {
                 params_id: vars.borrow().node.entry.params_id,
@@ -69,31 +41,21 @@ impl Prover {
             bindings: vars.borrow().node.bindings.clone()
         }, &mut owned_linked);
 
-        // Place the type and equations of the declaration on the metavariable.
-        metas[0].borrow_mut().gamma = gamma;
-        metas[0].borrow_mut().constraints = decl.borrow().constraints.iter().map(|(premise, goal, allow_redexes)| {
-            let constraint: Box<dyn Constraint> = Box::new(Equation {
-                premise: Term { base: premise.downgrade(), es: typ.1.clone() },
-                goal: Term { base: goal.downgrade(), es: typ.1.clone() },
-                allow_redexes: *allow_redexes
-            });
-            constraint
-        }).collect();
-        metas[0].borrow_mut().typ = Some(typ);
-
-        Prover { next_root: metas[0].downgrade(), metas, _owned_linked: owned_linked }
+        let mut meta = S::new(Meta::new(typ));
+        meta.borrow_mut().gamma = gamma;
+        Prover { next_root: meta.downgrade(), meta, _owned_linked: owned_linked }
     }
 
     /// Clone the term rooted at `meta` into a fresh `Prover` for the same problem.
     pub fn from_root(meta: W<Meta>) -> Option<Prover> {
         let prover = Prover::new(meta.borrow().typ.as_ref().unwrap().0.clone());
         let mut map = HashMap::default();
-        transfer(meta, prover.metas[0].downgrade(), &mut map).then_some(prover)
+        transfer(meta, prover.meta.downgrade(), &mut map).then_some(prover)
     }
 
     /// Gets the current (partial) term of the prover.
     pub fn get_term(&self) -> Term {
-        Term { base: self.metas[0].downgrade(), es: self.metas[0].borrow().gamma.clone() }
+        Term { base: self.meta.downgrade(), es: self.meta.borrow().gamma.clone() }
     }
 
     /// Start proof search, with a callback for solutions.
@@ -269,18 +231,18 @@ impl Prover {
     }
 
     /// Return a clone of this prover and a map of metavariables between this and the new clone, with `stats_buffer` moved into `stats`.
-    /// The clone is created with `Prover::new`, so it receives the equations of the declaration.
+    /// The clone is created with `Prover::new` for the same declaration.
     pub fn try_clone(&self) -> Option<(Self, HashMap<W<Meta>, W<Meta>>)> {
-        let mut prover = Prover::new(self.metas[0].borrow().typ.as_ref().unwrap().0.clone());
+        let mut prover = Prover::new(self.meta.borrow().typ.as_ref().unwrap().0.clone());
         let mut map = HashMap::default();
-        if !transfer(self.metas[0].downgrade(), prover.metas[0].downgrade(), &mut map) { return None }
+        if !transfer(self.meta.downgrade(), prover.meta.downgrade(), &mut map) { return None }
         prover.next_root = map.get(&self.next_root).unwrap().clone();
         Some((prover, map))
     }
 
     /// Accumulate the statistics of `other` into self.
     fn accumulate(&self, other: Prover) {
-        accumulate_stats(self.metas[0].downgrade(), other.metas[0].downgrade());
+        accumulate_stats(self.meta.downgrade(), other.meta.downgrade());
     }
 }
 

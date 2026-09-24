@@ -62,7 +62,6 @@ pub struct AppState {
     pub constraints: bool,
 
     // For ownership purposes.
-    pub _owned_linked: Vec<S<Linked>>,
     pub _owned_bind: S<Decl>,
     /// Provers whose nodes may be referenced by `current` and the undo/redo stacks.
     pub _owned_provers: Vec<Prover>
@@ -214,10 +213,10 @@ async fn canonical(State(state): State<Arc<Mutex<AppState>>>) -> Json<serde_json
         return Json(json!({}))
     };
     let meta = Meta::try_clone(state.current.downgrade()).unwrap().0;
-    let prover = Prover { next_root: meta.downgrade(), metas: vec![meta], _owned_linked: Vec::new() };
+    let prover = Prover { next_root: meta.downgrade(), meta, _owned_linked: Vec::new() };
 
     if let Some(solved) = canonical_simple(prover) {
-        let term = Meta::try_clone(solved.metas[0].downgrade()).unwrap().0;
+        let term = Meta::try_clone(solved.meta.downgrade()).unwrap().0;
         state._owned_provers.push(solved);
         let prev = mem::replace(&mut state.current, term);
         state.redo.clear();
@@ -235,9 +234,9 @@ async fn canonical1(State(state): State<Arc<Mutex<AppState>>>, Json(solve1) : Js
     let (meta, map) = Meta::try_clone(current.clone()).unwrap();
     let next_root = map.get(&find_with_id(current, solve1.meta_id).unwrap()).unwrap().clone();
 
-    let prover = Prover { next_root, metas: vec![meta], _owned_linked: Vec::new() };
+    let prover = Prover { next_root, meta, _owned_linked: Vec::new() };
     if let Some(solved) = canonical_simple(prover) {
-        let term = Meta::try_clone(solved.metas[0].downgrade()).unwrap().0;
+        let term = Meta::try_clone(solved.meta.downgrade()).unwrap().0;
         state._owned_provers.push(solved);
         let prev = mem::replace(&mut state.current, term);
         state.redo.clear();

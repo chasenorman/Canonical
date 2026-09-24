@@ -473,8 +473,7 @@ pub unsafe extern "C" fn canonical(decl: *const LeanDecl, timeout: u64, count: u
 
         let arc : Arc<Mutex<Vec<IRExpr>>> = Arc::new(Mutex::new(Vec::new()));
         let arc_clone = arc.clone();
-        let mut owned_linked = Vec::new();
-        let problem = ir_decl.to_problem(&mut owned_linked);
+        let (problem, _) = ir_decl.to_problem();
         let prover = Prover::new(problem.downgrade());
 
         let worker = thread::spawn(move || {
@@ -517,10 +516,9 @@ pub unsafe extern "C" fn cancel() -> *const LeanResult {
 pub unsafe extern "C" fn refine(decl: *const LeanDecl) -> *const LeanResult {
     to_lean_result(None, || {
         let ir_decl = to_ir_decl(decl);
-        let mut owned_linked = Vec::new();
-        let problem = ir_decl.to_problem(&mut owned_linked);
+        let (problem, _) = ir_decl.to_problem();
         let prover = Prover::new(problem.downgrade());
-        let current = Meta::try_clone(prover.metas[0].downgrade()).unwrap().0;
+        let current = Meta::try_clone(prover.meta.downgrade()).unwrap().0;
 
         let new_state = AppState {
             current,
@@ -528,7 +526,6 @@ pub unsafe extern "C" fn refine(decl: *const LeanDecl) -> *const LeanResult {
             redo: Vec::new(),
             autofill: true,
             constraints: false,
-            _owned_linked: owned_linked,
             _owned_bind: problem,
             _owned_provers: vec![prover]
         };

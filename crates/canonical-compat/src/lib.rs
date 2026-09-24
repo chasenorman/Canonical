@@ -76,17 +76,15 @@ macro_rules! P {
 #[tokio::main]
 pub async fn main() {
     let problem = IRDecl::load("lean/debug.json".to_string());
-    let mut owned_linked = Vec::new();
+    let (decl, _) = problem.to_problem();
 
-    let decl = problem.to_problem(&mut owned_linked);
     let prover = Prover::new(decl.downgrade());
     let state = AppState {
-        current: Meta::try_clone(prover.metas[0].downgrade()).unwrap().0,
+        current: Meta::try_clone(prover.meta.downgrade()).unwrap().0,
         undo: Vec::new(),
         redo: Vec::new(),
         autofill: true,
         constraints: false,
-        _owned_linked: owned_linked,
         _owned_bind: decl,
         _owned_provers: vec![prover]
     };

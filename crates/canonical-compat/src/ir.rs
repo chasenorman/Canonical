@@ -6,6 +6,7 @@ use std::fmt;
 use serde::{Serialize, Deserialize};
 use std::fs::File;
 use crate::reduction::*;
+use crate::ai::*;
 use canonical_core::stats::SearchInfo;
 use std::any::Any;
 
@@ -64,52 +65,52 @@ pub struct IRExpr {
     pub goal_rules: Vec<String>
 }
 
+/// `position` extended with `steps`.
+pub(crate) fn extend(position: &[Position], steps: &[Position]) -> Vec<Position> {
+    [position, steps].concat()
+}
+
 impl IRDecl {
-    pub fn to_bind(&self) -> Decl { Decl::new(self.name.clone()) }
+    pub fn to_decl(&self, position: Vec<Position>) -> Decl { Decl::new(self.name.clone(), position) }
 
     /// Translate this declaration, compiling `equations` and `typ` into `decl`.
     /// Equations on a let (`LET`) define reduction, as rewrite rules and redexes;
     /// equations on a param constrain the instantiation of its variables, checked as `Equation`s.
-    fn translate<const LET: bool>(&self, decl: &mut S<Decl>, es: &ES, owned_linked: &mut Vec<S<Linked>>) {
+    fn translate<const LET: bool>(&self, decl: &mut S<Decl>, es: &ES, owned_linked: &mut Vec<S<Linked>>,
+        position: &[Position], tokens: &mut Tokenization, polarity: Option<Polarity>) {
+        match polarity {
+            Some(Polarity::Goal) => tokens.goals.push(decl.downgrade()),
+            Some(Polarity::Premise) => tokens.premises.push(decl.downgrade()),
+            None => {}
+        }
+
         if LET {
             let mut owned_bindings = Vec::new();
-            decl.borrow_mut().rules = to_rules(&self.equations, es, owned_linked, &mut owned_bindings);
+            decl.borrow_mut().rules = to_rules(&self.equations, es, owned_linked, &mut owned_bindings, position, tokens);
             decl.borrow_mut().redexes = to_redexes(&self.equations, es);
             decl.borrow_mut()._owned_bindings = owned_bindings;
         } else {
-            decl.borrow_mut().constraints = self.equations.iter().map(|c| (
-                S::new(c.lhs.to_body(es.clone(), S::new(Indexed { params: Vec::new(), lets: Vec::new() }), Vec::new())),
-                S::new(c.rhs.to_body(es.clone(), S::new(Indexed { params: Vec::new(), lets: Vec::new() }), Vec::new())),
+            decl.borrow_mut().constraints = self.equations.iter().enumerate().map(|(i, c)| (
+                S::new(c.lhs.to_body(es.clone(), S::new(Indexed { params: Vec::new(), lets: Vec::new() }), Vec::new(), 
+                    &extend(position, &[Position::Rule(i), Position::LHS]), tokens)),
+                S::new(c.rhs.to_body(es.clone(), S::new(Indexed { params: Vec::new(), lets: Vec::new() }), Vec::new(),
+                    &extend(position, &[Position::Rule(i), Position::RHS]), tokens)),
                 c.is_redex
             )).collect();
         }
-        decl.borrow_mut().typ = self.typ.as_ref().map(|t| t.to_expr(es));
+        decl.borrow_mut().typ = self.typ.as_ref().map(|t| t.to_expr(es, &extend(position, &[Position::Type]), tokens, polarity));
     }
 
-    /// Translate this declaration into a `Decl` to be solved for by a `Prover`.
-    /// The type and equations are typed under an ES with a dummy entry binding `self.name`,
-    /// which `Prover::new` recreates as a substitution containing the metavariable itself.
-    pub fn to_problem(&self, owned_linked: &mut Vec<S<Linked>>) -> S<Decl> {
+    /// Translate this declaration into a `Decl` to be solved for by a `Prover`, and compile the problem.
+    /// The declaration is translated under the empty ES, so its equations cannot refer to any variables.
+    pub fn to_problem(&self) -> (S<Decl>, Tokenization) {
         assert!(self.typ.is_some(), "Declaration {} has no type.", self.name);
-        let mut decl = S::new(self.to_bind());
-
-        // The dummy entry with the name of the problem.
-        let bindings = S::new(Indexed { params: vec![S::new(self.to_bind())], lets: Vec::new() });
-        let es = ES::new().append(Node { entry: Entry::vars(next_u64()), bindings: bindings.downgrade() }, owned_linked);
-        decl.borrow_mut()._owned_bindings.push(bindings);
-
-        // Translate the type under the dummy entry, and wait to translate the equations
-        // until the second node with the variables of the type is created.
-        decl.borrow_mut().typ = Some(self.typ.as_ref().unwrap().to_expr(&es));
-        let gamma = decl.borrow().typ.as_ref().unwrap().borrow().gamma.clone();
-        decl.borrow_mut().constraints = self.equations.iter().map(|c| (
-            S::new(c.lhs.to_body(gamma.clone(), S::new(Indexed { params: Vec::new(), lets: Vec::new() }), Vec::new())),
-            S::new(c.rhs.to_body(gamma.clone(), S::new(Indexed { params: Vec::new(), lets: Vec::new() }), Vec::new())),
-            c.is_redex
-        )).collect();
-
-        compile(Type(decl.downgrade(), es));
-        decl
+        let mut decl = S::new(self.to_decl(Vec::new()));
+        let mut tokens = Tokenization::new();
+        let mut owned_linked = Vec::new();
+        self.translate::<false>(&mut decl, &ES::new(), &mut owned_linked, &[], &mut tokens, Some(Polarity::Goal));
+        compile(Type(decl.downgrade(), ES::new()));
+        (decl, tokens)
     }
 }
 
@@ -139,7 +140,7 @@ fn disambiguate_bind(preferred_name: &String, es: &ES) -> Decl {
         count += 1;
         name = preferred_name.clone() + &count.to_string();
     }
-    Decl::new(name)
+    Decl::new(name, Vec::new())
 }
 
 /// Construct a copy of `bindings` such that the names are not already in `es`.
@@ -250,9 +251,12 @@ impl IRSpine {
     }
 
     /// Finds the head `DeBruijnIndex` in the `es` and creates a Meta with `bindings` and recursively converted arguments.
-    pub fn to_body(&self, es: ES, bindings: S<Indexed>, owned_linked: Vec<S<Linked>>) -> Meta {
+    pub fn to_body(&self, es: ES, bindings: S<Indexed>, owned_linked: Vec<S<Linked>>, 
+        position: &[Position], tokens: &mut Tokenization) -> Meta {
         let (head, bind) = es.index_of(&self.head).expect(&format!("Undeclared variable: {}", self.head));
-        let args = self.args.iter().map(|t| t.to_expr(&es)).collect();
+        tokens.tokens.push((position.to_vec(), bind.clone()));
+        let args = self.args.iter().enumerate().map(|(i, t)|
+            t.to_expr(&es, &extend(position, &[Position::Arg(i)]), tokens, None)).collect();
  
         Meta {
             assignment: Some(Assignment { head, args, bind, changes: Vec::new(), _owned_linked: owned_linked, has_rigid_type: true, var_type: None }),
@@ -273,10 +277,13 @@ impl IRSpine {
 
 impl IRExpr {
     /// Extend `es` with fresh `Decl`s for `self.params` and `self.lets`, without compiling equations.
-    pub fn add_local(&self, es: &ES, owned_linked: &mut Vec<S<Linked>>) -> (ES, S<Indexed>) {
+    pub fn add_local(&self, es: &ES, owned_linked: &mut Vec<S<Linked>>, 
+        position: &[Position]) -> (ES, S<Indexed>) {
         let bindings = S::new(Indexed {
-            params: self.params.iter().map(|d| S::new(d.to_bind())).collect(),
-            lets: self.lets.iter().map(|d| S::new(d.to_bind())).collect()
+            params: self.params.iter().enumerate().map(|(i, d)| 
+                S::new(d.to_decl(extend(position, &[Position::Param(i)])))).collect(),
+            lets: self.lets.iter().enumerate().map(|(i, d)| 
+                S::new(d.to_decl(extend(position, &[Position::Let(i)])))).collect()
         });
 
         let node = Node {
@@ -287,18 +294,22 @@ impl IRExpr {
     }
 
     /// Convert to the codomain `Meta`, translating each declaration in the extended ES.
-    pub fn to_expr(&self, es: &ES) -> S<Meta> {
+    pub fn to_expr(&self, es: &ES, position: &[Position], tokens: &mut Tokenization, polarity: Option<Polarity>) -> S<Meta> {
         let mut owned_linked = Vec::new();
-        let (es, mut bindings) = self.add_local(es, &mut owned_linked);
+        let (es, mut bindings) = self.add_local(es, &mut owned_linked, position);
 
-        for (decl, d) in bindings.borrow_mut().params.iter_mut().zip(self.params.iter()) {
-            d.translate::<false>(decl, &es, &mut owned_linked);
+        for i in 0..self.params.len() {
+            let decl = &mut bindings.borrow_mut().params[i];
+            let position = extend(position, &[Position::Param(i)]);
+            self.params[i].translate::<false>(decl, &es, &mut owned_linked, &position, tokens, polarity.map(Polarity::opposite));
         }
-        for (decl, d) in bindings.borrow_mut().lets.iter_mut().zip(self.lets.iter()) {
-            d.translate::<true>(decl, &es, &mut owned_linked);
+        for i in 0..self.lets.len() {
+            let decl = &mut bindings.borrow_mut().lets[i];
+            let position = extend(position, &[Position::Let(i)]);
+            self.lets[i].translate::<true>(decl, &es, &mut owned_linked, &position, tokens, polarity.map(Polarity::opposite));
         }
 
-        S::new(self.spine.to_body(es, bindings, owned_linked))
+        S::new(self.spine.to_body(es, bindings, owned_linked, position, tokens))
     }
 
     pub fn from_lambda<const RULES: bool>(term: Term, bindings: W<Indexed>, html: bool) -> IRExpr {
