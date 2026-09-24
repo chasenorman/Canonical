@@ -2,11 +2,10 @@ use crate::core::*;
 use crate::memory::*;
 use std::sync::Arc;
 use arc_swap::ArcSwap;
-use rustc_hash::FxHashMap as HashMap;
 use once_cell::sync::Lazy;
 use std::iter;
 
-pub static COMPILATION: Lazy<ArcSwap<HashMap<(usize, usize), Vec<Index>>>> = Lazy::new(|| ArcSwap::from_pointee(HashMap::default()));
+pub static COMPILATION: Lazy<ArcSwap<Vec<Vec<Vec<Index>>>>> = Lazy::new(|| ArcSwap::from_pointee(Vec::new()));
 
 fn get_type(term: Term, owned_linked: &mut Vec<S<Linked>>) -> Option<Term> {
     let assn = term.base.borrow().assignment.as_ref().unwrap();
@@ -44,7 +43,7 @@ pub fn compile(typ: Type) {
     let mut owned_metas = Vec::new();
     get_compilation_info(typ, &mut goals, Polarity::Goal, &mut owned_linked, &mut owned_metas);
     // println!("{:?}", goals.iter().map(|(typ, children)| typ.2.name).collect::<Vec<_>>());
-    let mut compilation = HashMap::default();
+    let mut compilation = vec![vec![Vec::new(); goals.len()]; goals.len()];
     // let mut count: u32 = 0;
     for goal in goals.iter() {
         for goal2 in goals.iter() {
@@ -57,7 +56,7 @@ pub fn compile(typ: Type) {
                 }
                 // println!("{} <- {}: {}", goal.0.2.borrow().name, premise.0.2.borrow().name, success);
             }
-            compilation.insert((goal.0.0.usize(), goal2.0.0.usize()), unifications);
+            compilation[goal.0.2.borrow().index][goal2.0.2.borrow().index] = unifications;
         }
     }
     COMPILATION.store(Arc::new(compilation));
@@ -68,14 +67,17 @@ pub fn compile(typ: Type) {
 
 impl ES {
     /// Returns an iterator of `DeBruijnIndex` in this `ES``, along with the `Linked` they are rooted at.
-    pub fn iter_unify(&self, tb: W<TypeBase>) -> impl Iterator<Item = (DeBruijnIndex, W<Linked>)> {
+    pub fn iter_unify(&self, goal: W<Bind>) -> impl Iterator<Item = (DeBruijnIndex, W<Linked>)> {
+        let compilation = COMPILATION.load_full();
+        let goal = goal.borrow().index;
         iter::successors(self.linked.clone(), |node| 
             node.borrow().tail.clone() // Iterate over the linked list.
-        ).enumerate().flat_map(move |(db, node)|
-            COMPILATION.load().get(&(tb.usize(), node.borrow().node.entry.context.as_ref().unwrap().0.usize())).unwrap().iter().map(|item| 
+        ).enumerate().flat_map(move |(db, node)| {
+            let context = node.borrow().node.entry.context.as_ref().unwrap().2.borrow().index;
+            compilation[goal][context].iter().map(|item| 
                 (DeBruijnIndex(DeBruijn(db as u32), item.clone()), node.clone())
             ).collect::<Vec<(DeBruijnIndex, W<Linked>)>>().into_iter()
-        )
+        })
     }
 }
 

@@ -4,7 +4,6 @@ use canonical_compat::ir::*;
 use canonical_core::core::*;
 use canonical_core::prover::*;
 use canonical_core::search::*;
-use canonical_core::memory::S;
 use std::thread;
 use std::time::Duration;
 use std::sync::atomic::Ordering;

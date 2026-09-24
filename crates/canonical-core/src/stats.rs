@@ -58,10 +58,12 @@ impl MetaInfo {
     /// Collect the information of a metavaraible. 
     pub fn new(meta: W<Meta>) -> Self {
         let has_rigid_equation = meta.borrow().constraints.iter().any(|c| c.rigid());
-        let bin = meta.borrow().typ.as_ref().unwrap().0.usize() + has_rigid_equation as usize;
+        // Bins are keyed by the index of the goal, with the low bit for `has_rigid_equation`.
+        let goal = meta.borrow().typ.as_ref().unwrap().2.borrow().index;
+        let bin = goal << 1 | has_rigid_equation as usize;
         let current_stats = META_MAP.load().get(&bin).map(|x| x.clone()).unwrap_or_else(MetaStats::new);
         let mut future_stats = if has_rigid_equation { MetaStats::new() } else {
-            let rigid_bin = meta.borrow().typ.as_ref().unwrap().0.usize() + 1;
+            let rigid_bin = goal << 1 | 1;
             META_MAP.load().get(&rigid_bin).map(|x| x.clone()).unwrap_or_else(MetaStats::new)
         };
         future_stats.add(current_stats.clone());
@@ -173,8 +175,10 @@ impl AssignmentInfo {
         let constraints_generated = meta.borrow().assignment.as_ref().unwrap().changes.len();
         let had_rigid_equation = meta.borrow().has_rigid_equation;
         let has_rigid_type = meta.borrow().assignment.as_ref().unwrap().has_rigid_type;
-        let bin = meta.borrow().typ.as_ref().unwrap().0.usize() // + had_rigid_equation as usize
-                       + meta.borrow().assignment.as_ref().unwrap().bind.usize() + (has_rigid_type as usize) << 1;
+        // Bins are keyed by the indices of the goal and the assigned premise, with the low bit for `has_rigid_type`.
+        let goal = meta.borrow().typ.as_ref().unwrap().2.borrow().index;
+        let premise = meta.borrow().assignment.as_ref().unwrap().bind.borrow().index;
+        let bin = goal << 33 | premise << 1 | has_rigid_type as usize;
         let stats = ASSIGNMENT_MAP.load().get(&bin).map(|x| x.clone()).unwrap_or_else(AssignmentStats::new);
 
         AssignmentInfo { meta, constraints_generated, had_rigid_equation, has_rigid_type, bin, stats }

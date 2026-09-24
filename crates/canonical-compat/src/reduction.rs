@@ -90,8 +90,7 @@ fn get_children(builds: &Vec<(&mut Build, &IRSpine, ES, Vec<Position>)>) -> Vec<
     return children;
 }
 
-fn get_bindings(build: &mut Build, term: &IRSpine, es: ES, position: &[Position],
-        tokens: &mut Tokenization) -> S<Indexed<S<Bind>>> {
+fn get_bindings(build: &mut Build, term: &IRSpine, es: ES, position: &[Position]) -> S<Indexed<S<Bind>>> {
     let mut params: Vec<S<Bind>> = Vec::new();
     let mut found = false;
 
@@ -137,7 +136,7 @@ fn _to_rules(state: Vec<(&mut Build, &IRSpine, ES, Vec<Position>)>, owned_linked
         let children: Vec<usize> = get_children(&builds);
 
         for (build, term, es, position) in builds.iter_mut() {
-            let bindings = get_bindings(build, term, es.clone(), position, tokens);
+            let bindings = get_bindings(build, term, es.clone(), position);
 
             build.pattern.push(Some(Symbol {
                 bind: bind.clone(),

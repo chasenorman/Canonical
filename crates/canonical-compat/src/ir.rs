@@ -190,7 +190,7 @@ impl IRSpine {
         let meta_id = meta.borrow() as *const Meta as usize;
 
         let options = meta.borrow().gamma.iter_unify(
-            meta.borrow().typ.as_ref().unwrap().0.clone()
+            meta.borrow().typ.as_ref().unwrap().2.clone()
         ).filter_map(|(db, linked)| {
             if let Some(Some(result)) = test(db, linked, meta.clone()) {
                 let name = result.0.bind.borrow().name.clone();
@@ -299,7 +299,7 @@ impl IRType {
     pub fn to_problem(&self, name: String) -> (S<TypeBase>, S<Bind>, Tokenization) {
         let mut tokens = Tokenization::new();
         let problem_bind = S::new(Bind::new(name, Vec::new()));
-        tokens.goals.push(problem_bind.downgrade());
+        tokens.declare(problem_bind.downgrade(), Polarity::Goal);
         let tb = S::new(self.to_type(&ES::new(), &[Position::Type], &mut tokens, Polarity::Goal));
         (tb, problem_bind, tokens)
     }
@@ -310,22 +310,14 @@ impl IRType {
         let codomain = self.codomain.to_term(es, position, tokens);
 
         let params : Vec<Option<S<TypeBase>>> = self.params.iter().enumerate().map(|(i, t)|
-            t.as_ref().map(|t| { 
-                match polarity {
-                    Polarity::Goal => tokens.premises.push(codomain.bindings.borrow().params[i].downgrade()),
-                    Polarity::Premise => tokens.goals.push(codomain.bindings.borrow().params[i].downgrade())
-                }
-
+            t.as_ref().map(|t| {
+                tokens.declare(codomain.bindings.borrow().params[i].downgrade(), polarity.opposite());
                 let position = &extend(position, &[Position::Param(i), Position::Type]);
                 S::new(t.to_type(&codomain.gamma, position, tokens, polarity.opposite()))
             })).collect();
         let lets : Vec<Option<S<TypeBase>>> = self.lets.iter().enumerate().map(|(i, t)|
-             t.as_ref().map(|t| { 
-                match polarity {
-                    Polarity::Goal => tokens.premises.push(codomain.bindings.borrow().lets[i].downgrade()),
-                    Polarity::Premise => tokens.goals.push(codomain.bindings.borrow().lets[i].downgrade())
-                }
-
+             t.as_ref().map(|t| {
+                tokens.declare(codomain.bindings.borrow().lets[i].downgrade(), polarity.opposite());
                 let position = &extend(position, &[Position::Let(i), Position::Type]);
                 S::new(t.to_type(&codomain.gamma, position, tokens, polarity.opposite()))
             })).collect();

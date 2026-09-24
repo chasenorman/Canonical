@@ -1,5 +1,4 @@
 use Index::*;
-use crate::core::Polarity::Goal;
 use crate::memory::{S, W, WVec};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::iter;
@@ -381,6 +380,7 @@ pub struct Bind {
     pub rules: Vec<Rule>,
     pub redexes: Vec<Vec<Instruction>>,
     pub position: Vec<Position>,
+    pub index: usize,
 
     pub owned_bindings: Vec<S<Indexed<S<Bind>>>>
 }
@@ -392,6 +392,7 @@ impl Bind {
             rules: Vec::new(),
             redexes: Vec::new(),
             position,
+            index: usize::MAX,
             owned_bindings: Vec::new()
         }
     }

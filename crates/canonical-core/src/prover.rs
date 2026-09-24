@@ -3,6 +3,7 @@ use crate::core::*;
 use crate::memory::*;
 use crate::stats::*;
 use crate::compiler::compile;
+use crate::heuristic;
 use rayon::prelude::*;
 use std::sync::atomic::{Ordering, AtomicUsize};
 use std::sync::Arc;
@@ -106,14 +107,16 @@ impl Prover {
         let mut options = Vec::new();
         let mut total_weight = 0.0;
         let mut attempts = 0;
-        for (db, linked) in next.meta.borrow().gamma.iter_unify(next.meta.borrow().typ.as_ref().unwrap().0.clone()) {
+        let goal = next.meta.borrow().typ.as_ref().unwrap().2.clone();
+        for (db, linked) in next.meta.borrow().gamma.iter_unify(goal.clone()) {
             let attempt = test(db, linked, next.meta.clone());
             if attempt.is_some() {
                 attempts += 1;
             }
-            if let Some(Some(result)) = attempt {
-                total_weight += result.2.weight();
-                options.push(result);
+            if let Some(Some((assignment, constraints, info))) = attempt {
+                let weight = heuristic::weight(&goal, &assignment.bind);
+                total_weight += weight;
+                options.push((assignment, constraints, info, weight));
             }
         }
         let branching = options.len();
@@ -124,7 +127,7 @@ impl Prover {
         let num_jobs = NUM_JOBS.load(Ordering::Relaxed);
 
         if branching < 2 || next_result.tree_entropy > 1000.0 || num_jobs > 100 {
-            while let Some((assignment, constraints, info)) = iter.next() {
+            while let Some((assignment, constraints, info, weight)) = iter.next() {
                 let meta = next.meta.borrow_mut();
 
                 meta.assign(assignment, constraints);
@@ -133,7 +136,7 @@ impl Prover {
                 meta.stats.assignment_fence();
                 meta.stats_buffer.assignment_fence();
 
-                meta.branching = total_weight / info.weight();
+                meta.branching = total_weight / weight;
                 let result = self.parallel_dfs(max_entropy, max_size, callback);
                 
                 // The steps spent on this metavariable 
@@ -157,10 +160,10 @@ impl Prover {
 
         // Create cloned provers for each remaining option. 
         let provers: Vec<(Prover, W<Meta>, AssignmentInfo)> = iter.filter_map(
-            |(assignment, constraints, info)| {
+            |(assignment, constraints, info, weight)| {
             next.meta.borrow_mut().assign(assignment, constraints);
 
-            next.meta.borrow_mut().branching = total_weight / info.weight();
+            next.meta.borrow_mut().branching = total_weight / weight;
             let result = self.try_clone();
 
             next.meta.borrow_mut().unassign();
