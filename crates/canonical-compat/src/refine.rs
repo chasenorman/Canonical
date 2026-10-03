@@ -62,9 +62,7 @@ pub struct AppState {
     pub constraints: bool,
 
     // For ownership purposes.
-    pub _owned_linked: Vec<S<Linked>>,
-    pub _owned_tb: S<TypeBase>,
-    pub _owned_bind: S<Bind>
+    pub _owned_decl: S<Decl>
 }
 
 /// Sent from JS to represent an assignment.
@@ -97,7 +95,7 @@ async fn term(State(state): State<Arc<Mutex<AppState>>>) -> Json<serde_json::Val
     };
     let meta = state.current.downgrade();
     let mut owned_linked = Vec::new();
-    let term = IRSpine::from_body::<false>(Term { base: meta.clone(), es: meta.borrow().gamma.clone() }.whnf::<false, ()>(&mut owned_linked, &mut ()), true);
+    let term = IRSpine::from_body::<false>(Term { base: meta.clone(), es: meta.borrow().gamma.clone() }.whnf::<false, ()>(&mut owned_linked, &mut (), false), true);
     let html = term.to_string();
     let next = Meta::next(meta)
         .next
@@ -249,7 +247,7 @@ fn canonical_simple(prover: Prover) -> Option<S<Meta>> {
         prover.prove(&|value| {
             if let Some(cloned) = Meta::try_clone(value.base) {
                 let _ = tx.send(Some(cloned.0));
-            } 
+            }
         }, false);
         tx.send(None)
     });
@@ -286,7 +284,7 @@ fn find_autofill(meta: W<Meta>) -> Option<(W<Meta>, DeBruijnIndex)> {
     match &meta.borrow().assignment {
         None => {
             let domain: Vec<(DeBruijnIndex, W<Linked>)> = meta.borrow().gamma.iter_unify(
-                meta.borrow().typ.as_ref().unwrap().2.clone()
+                meta.borrow().typ.as_ref().unwrap().0.clone()
             ).filter(|(db, linked)| {
                 test(db.clone(), linked.clone(), meta.clone()).is_some_and(|o| o.is_some())
             }).collect();

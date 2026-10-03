@@ -2,7 +2,6 @@ use crate::search::*;
 use crate::core::*;
 use crate::memory::*;
 use crate::stats::*;
-use crate::compiler::compile;
 use crate::heuristic;
 use rayon::prelude::*;
 use std::sync::atomic::{Ordering, AtomicUsize};
@@ -12,10 +11,11 @@ use rustc_hash::FxHashMap as HashMap;
 /// The number of Rayon jobs yet to be completed.
 pub static NUM_JOBS: AtomicUsize = AtomicUsize::new(0);
 
-/// A `Prover` has a metavariable for the main goal, and a flag for `program_synthesis` mode.
+/// A `Prover` has a metavariable for the main goal.
 pub struct Prover {
+    /// The root metavariable.
     pub meta: S<Meta>,
-    /// In case we only want to solve a subtree of `meta`, this defines the root for `next`.
+    /// In case we only want to solve a subtree of the root, this defines the root for `next`.
     pub next_root: W<Meta>
 }
 
@@ -23,22 +23,16 @@ unsafe impl Send for Prover {}
 unsafe impl Send for W<Meta> {}
 
 impl Prover {
-    /// Creates a new Prover for the specified `Type`. 
-    pub fn new(tb_ref: W<TypeBase>, problem_bind: W<Bind>, owned_linked: &mut Vec<S<Linked>>) -> Self {
-        let entry = &tb_ref.borrow().codomain.borrow().gamma.linked.as_ref().unwrap().borrow().node.entry;
-        let node = Node { 
-            entry: Entry { params_id: entry.params_id, lets_id: entry.lets_id, subst: None, 
-                context: Some(Type(tb_ref.clone(), tb_ref.borrow().codomain.borrow().gamma.clone(), problem_bind.clone()))}, 
-            bindings: tb_ref.borrow().codomain.borrow().gamma.linked.as_ref().unwrap().borrow().node.bindings.clone() 
-        };
-        let es = ES::new().append(node, owned_linked);
-        compile(Type(tb_ref.clone(), ES::new(), problem_bind.clone()));
-        let ty = Type(tb_ref.clone(), es, problem_bind.clone());
-        let meta = S::new(Meta::new(ty));
+    /// Creates a `Prover` solving for `decl`, whose type was translated under the empty ES.
+    /// The node binding the variables of the type is given `decl` as its typing context.
+    pub fn new(decl: W<Decl>) -> Self {
+        let typ = Type(decl.clone(), decl.borrow().typ.as_ref().unwrap().borrow().gamma.clone());
+        typ.1.linked.clone().unwrap().borrow_mut().node.entry.context = Some(typ.clone());
+        let meta = S::new(Meta::new(typ));
         Prover { next_root: meta.downgrade(), meta }
     }
 
-    /// Gets the current (partial) term of the prover. 
+    /// Gets the current (partial) term of the prover.
     pub fn get_term(&self) -> Term {
         Term { base: self.meta.downgrade(), es: self.meta.borrow().gamma.clone() }
     }
@@ -107,14 +101,14 @@ impl Prover {
         let mut options = Vec::new();
         let mut total_weight = 0.0;
         let mut attempts = 0;
-        let goal = next.meta.borrow().typ.as_ref().unwrap().2.clone();
+        let goal = next.meta.borrow().typ.as_ref().unwrap().0.clone();
         for (db, linked) in next.meta.borrow().gamma.iter_unify(goal.clone()) {
             let attempt = test(db, linked, next.meta.clone());
             if attempt.is_some() {
                 attempts += 1;
             }
             if let Some(Some((assignment, constraints, info))) = attempt {
-                let weight = heuristic::weight(&goal, &assignment.bind);
+                let weight = heuristic::weight(&goal, &assignment.decl);
                 total_weight += weight;
                 options.push((assignment, constraints, info, weight));
             }
@@ -164,10 +158,13 @@ impl Prover {
             next.meta.borrow_mut().assign(assignment, constraints);
 
             next.meta.borrow_mut().branching = total_weight / weight;
-            let result = self.try_clone();
+            let result = Meta::try_clone(self.meta.downgrade());
 
             next.meta.borrow_mut().unassign();
-            result.map(|(prover, map)| (prover, map.get(&next.meta).unwrap().clone(), info))
+            result.map(|(meta, map)| (
+                Prover { meta, next_root: map.get(&self.next_root).unwrap().clone() },
+                map.get(&next.meta).unwrap().clone(), info
+            ))
         }).collect();
         NUM_JOBS.fetch_add(provers.len(), Ordering::Acquire);
 
@@ -217,14 +214,7 @@ impl Prover {
         acc
     }
 
-    /// Return a clone of this prover and a map of metavariables between this and the new clone, with `stats_buffer` moved into `stats`.
-    pub fn try_clone(&self) -> Option<(Self, HashMap<W<Meta>, W<Meta>>)> {
-        Meta::try_clone(self.meta.downgrade()).map(|(meta, map)| {
-            (Prover { meta, next_root: map.get(&self.next_root).unwrap().clone() }, map)
-        })
-    }
-
-    /// Accumulate the statistics of `other` into self. 
+    /// Accumulate the statistics of `other` into self.
     fn accumulate(&self, other: Prover) {
         accumulate_stats(self.meta.downgrade(), other.meta.downgrade());
     }

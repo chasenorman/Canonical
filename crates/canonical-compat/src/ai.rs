@@ -1,10 +1,10 @@
-use canonical_core::core::{Bind, Position, Polarity};
+use canonical_core::core::{Decl, Position, Polarity};
 use canonical_core::memory::W;
 
 pub struct Tokenization {
-    pub tokens: Vec<(Vec<Position>, W<Bind>)>,
-    pub goals: Vec<W<Bind>>,
-    pub premises: Vec<W<Bind>>
+    pub tokens: Vec<(Vec<Position>, W<Decl>)>,
+    pub goals: Vec<W<Decl>>,
+    pub premises: Vec<W<Decl>>
 }
 
 impl Tokenization {
@@ -13,13 +13,13 @@ impl Tokenization {
     }
 
     /// Record `bind` as a goal or premise by `polarity`, storing its index in the list on the bind.
-    pub fn declare(&mut self, mut bind: W<Bind>, polarity: Polarity) {
+    pub fn declare(&mut self, mut decl: W<Decl>, polarity: Polarity) {
         let list = match polarity {
             Polarity::Goal => &mut self.goals,
             Polarity::Premise => &mut self.premises
         };
-        bind.borrow_mut().index = list.len();
-        list.push(bind);
+        decl.borrow_mut().index = list.len();
+        list.push(decl);
     }
 }
 
@@ -43,10 +43,6 @@ impl Tokenization {
     
 // }
 
-// fn linearize_term(t: IRTerm, tokens: &mut Vec<Token>) {
-    
-// }
+// fn linearize_expr(t: IRExpr, tokens: &mut Vec<Token>) {
 
-// fn linearize_type(t: IRType, tokens: &mut Vec<Token>) {
-    
 // }
