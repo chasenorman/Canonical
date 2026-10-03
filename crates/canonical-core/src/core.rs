@@ -92,8 +92,8 @@ pub struct Assignment {
     pub head: DeBruijnIndex,
     pub args: Vec<S<Meta>>,
 
-    /// `bind` (redundantly) contains the `Decl` of the `head` symbol in the context Gamma
-    pub bind: W<Decl>,
+    /// `decl` (redundantly) contains the `Decl` of the `head` symbol in the context Gamma
+    pub decl: W<Decl>,
 
     /// `changes` and `_owned_linked` allow us to return to the previous state during backtracking.
     pub changes: Vec<W<Meta>>,
@@ -116,10 +116,10 @@ pub struct Meta {
     /// The `Type` of this metavariable.
     pub typ: Option<Type>,
     /// The bindings introduced by this term.
-    pub bindings: W<Indexed>,
+    pub bindings: W<Bindings>,
     pub from_original_problem: bool,
 
-    pub _owned_bindings: Option<S<Indexed>>, // exclusively for ownership purposes.
+    pub _owned_bindings: Option<S<Bindings>>, // exclusively for ownership purposes.
 
     /// Statistics and heuristics information.
     /// Statistics are generally accumulated in `stats_buffer`, but this must be reset during parallel processing,
@@ -160,7 +160,7 @@ impl Meta {
         if (!Equation { premise: assn.var_type.as_ref().unwrap().codomain(), goal: self.typ.as_ref().unwrap().codomain(), allow_redexes: false }
             .reduce(&mut new_constraints, &mut assn.changes, &mut assn._owned_linked)) { return None; }
 
-        if !assn.bind.borrow().redexes.iter().all(|redex|
+        if !assn.decl.borrow().redexes.iter().all(|redex|
             RedexConstraint {
                 instructions: WVec::new(redex),
                 position: 0,
@@ -227,7 +227,7 @@ impl Constraint for RedexConstraint {
         let mut blame = self.blame.clone();
         let mut i = self.position;
         while let Some(assn) = &blame.borrow().assignment {
-            if !assn.bind.eq(&self.instructions[i].bind) {
+            if !assn.decl.eq(&self.instructions[i].decl) {
                 return true;
             }
             if i == self.instructions.len() - 1 {
@@ -316,12 +316,12 @@ impl Subst {
 }
 
 /// A list indexed by `Index`.
-pub struct Indexed {
+pub struct Bindings {
     pub params: Vec<S<Decl>>,
     pub lets: Vec<S<Decl>>
 }
 
-impl std::ops::Index<Index> for Indexed {
+impl std::ops::Index<Index> for Bindings {
     type Output = S<Decl>;
 
     fn index(&self, index: Index) -> &Self::Output {
@@ -332,10 +332,10 @@ impl std::ops::Index<Index> for Indexed {
     }
 }
 
-impl Indexed {
+impl Bindings {
     /// We iterate over params first, as free variables are generally more important than consts.
     /// We iterate over params and lets in reverse order to prioritize dependently typed variables.
-    pub fn iter(indexed: &Indexed) -> impl Iterator<Item = Index> + '_ {
+    pub fn iter(indexed: &Bindings) -> impl Iterator<Item = Index> + '_ {
         let params_iter = (0..indexed.params.len()).rev().map(Param);
         let lets_iter = (0..indexed.lets.len()).rev().map(Let);
         params_iter.chain(lets_iter)
@@ -343,15 +343,15 @@ impl Indexed {
 }
 
 pub struct Instruction {
-    pub bind: W<Decl>,
+    pub decl: W<Decl>,
     pub parents: u32,
     pub child: usize
 }
 
 pub struct Symbol {
-    pub bind: W<Decl>,
+    pub decl: W<Decl>,
     pub children: Vec<usize>,
-    pub bindings: S<Indexed>
+    pub bindings: S<Bindings>
 }
 
 pub struct Rule {
@@ -385,7 +385,7 @@ pub struct Decl {
     pub redexes: Vec<Vec<Instruction>>,
     pub typ: Option<S<Meta>>,
     pub position: Vec<Position>,
-    pub _owned_bindings: Vec<S<Indexed>>,
+    pub _owned_bindings: Vec<S<Bindings>>,
     pub index: usize
 }
 
@@ -439,7 +439,7 @@ impl Entry {
 /// An `entry` accompanied with the associated `bindings` from the original problem. 
 pub struct Node {
     pub entry: Entry,
-    pub bindings: W<Indexed>,
+    pub bindings: W<Bindings>,
 }
 
 /// A linked list of `Node`
@@ -492,7 +492,7 @@ impl ES {
         };
 
         Var {
-            bind: node.bindings.borrow()[index].downgrade(),
+            decl: node.bindings.borrow()[index].downgrade(),
             index,
             entry_id
         }
@@ -503,7 +503,7 @@ impl ES {
         iter::successors(self.linked.clone(), |node| 
             node.borrow().tail.clone() // Iterate over the linked list.
         ).enumerate().flat_map(move |(db, node)| {
-            let indices: Vec<Index> = Indexed::iter(node.borrow().node.bindings.borrow()).collect();
+            let indices: Vec<Index> = Bindings::iter(node.borrow().node.bindings.borrow()).collect();
             indices.into_iter().map(move |item| (DeBruijnIndex(DeBruijn(db as u32), item), node.clone()))
         })
     }
@@ -575,16 +575,16 @@ impl Term {
             }
 
             let var = es.get_var(assn.head.1);
-            let bind = var.bind.clone();
+            let decl = var.decl.clone();
             let whnf = WHNF(self.clone(), Head::Var(var));
-            if RULES && !bind.borrow().rules.is_empty() {
-                let mut matchers = bind.borrow().rules.iter().map(|rule| Matcher {
+            if RULES && !decl.borrow().rules.is_empty() {
+                let mut matchers = decl.borrow().rules.iter().map(|rule| Matcher {
                     pattern: rule.pattern.iter(),
                     replacement: Term { base: rule.replacement.downgrade(), es: es.clone() },
                     rule: &rule
                 }).collect();
                 let mut stuck : Option<W<Meta>> = None;
-                let matched = whnf.pattern_match(&mut matchers, owned_linked, attribution, allow_redexes || whnf.0.base.borrow().from_original_problem, &mut stuck);
+                let matched = whnf.pattern_match(&mut matchers, owned_linked, attribution, allow_redexes || whnf.0.base.borrow().from_original_problem, allow_redexes, &mut stuck);
                 if let ControlFlow::Break((term, rule)) = matched {
                     attribution.attribute(rule);
                     return term.whnf::<RULES, C>(owned_linked, attribution, allow_redexes);
@@ -601,7 +601,10 @@ impl Term {
 }
 
 impl <'a> WHNF {
-    fn pattern_match<C: Attribution>(&self, patterns: &mut Vec<Matcher<'a>>, owned_linked: &mut Vec<S<Linked>>, attribution: &mut C, can_stuck: bool, stuck: &mut Option<W<Meta>>) -> ControlFlow<(Term, &'a Rule)> {
+    /// `can_stuck` is whether a metavariable blocking a match makes the term stuck,
+    /// and `allow_redexes` is passed on to the reduction of arguments.
+    fn pattern_match<C: Attribution>(&self, patterns: &mut Vec<Matcher<'a>>, owned_linked: &mut Vec<S<Linked>>, attribution: &mut C,
+        can_stuck: bool, allow_redexes: bool, stuck: &mut Option<W<Meta>>) -> ControlFlow<(Term, &'a Rule)> {
         guard_overflow();
         match &self.1 {
             Head::Meta(meta) => {
@@ -620,7 +623,7 @@ impl <'a> WHNF {
                 for i in (0..patterns.len()).rev() {
                     if let Some(symbol) = patterns[i].pattern.next().unwrap() {
                         let mut matcher = patterns.remove(i);
-                        if symbol.bind.eq(&var.bind) {
+                        if symbol.decl.eq(&var.decl) {
                             ordering = Some(&symbol.children);
                             matcher.replacement.es = matcher.replacement.es.append(Node {
                                 entry: Entry::subst(Subst(WVec::new(&self.0.base.borrow().assignment.as_ref().unwrap().args), self.0.es.clone())),
@@ -637,7 +640,7 @@ impl <'a> WHNF {
                 if let Some(ordering) = ordering {
                     for &i in ordering {
                         let arg = self.0.arg(i, Entry::vars(next_u64()), owned_linked);
-                        arg.whnf::<true, C>(owned_linked, attribution, can_stuck).pattern_match(&mut recursive, owned_linked, attribution, can_stuck, stuck)?;
+                        arg.whnf::<true, C>(owned_linked, attribution, allow_redexes).pattern_match(&mut recursive, owned_linked, attribution, can_stuck, allow_redexes, stuck)?;
                         if recursive.is_empty() { break; }
                     }
                 }
@@ -715,7 +718,7 @@ impl Type {
 pub struct Var {
     entry_id: u64,
     index: Index,
-    pub bind: W<Decl>
+    pub decl: W<Decl>
 }
 
 impl Var {

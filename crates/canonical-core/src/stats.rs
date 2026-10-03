@@ -177,7 +177,7 @@ impl AssignmentInfo {
         let has_rigid_type = meta.borrow().assignment.as_ref().unwrap().has_rigid_type;
         // Bins are keyed by the indices of the goal and the assigned premise, with the low bit for `has_rigid_type`.
         let goal = meta.borrow().typ.as_ref().unwrap().0.borrow().index;
-        let premise = meta.borrow().assignment.as_ref().unwrap().bind.borrow().index;
+        let premise = meta.borrow().assignment.as_ref().unwrap().decl.borrow().index;
         let bin = goal << 33 | premise << 1 | has_rigid_type as usize;
         let stats = ASSIGNMENT_MAP.load().get(&bin).map(|x| x.clone()).unwrap_or_else(AssignmentStats::new);
 

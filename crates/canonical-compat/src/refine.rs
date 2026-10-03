@@ -62,7 +62,7 @@ pub struct AppState {
     pub constraints: bool,
 
     // For ownership purposes.
-    pub _owned_bind: S<Decl>
+    pub _owned_decl: S<Decl>
 }
 
 /// Sent from JS to represent an assignment.

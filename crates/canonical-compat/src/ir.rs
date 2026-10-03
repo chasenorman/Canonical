@@ -18,7 +18,7 @@ fn constraint_html(c: &dyn Constraint, owned_linked: &mut Vec<S<Linked>>) -> Str
         format!("<div class='constraint'>{lhs} ≡ {rhs}</div>")
     } else if let Some(redex) = (c as &dyn Any).downcast_ref::<RedexConstraint>() {
         let path = (redex.position..redex.instructions.len())
-            .map(|i| redex.instructions[i].bind.borrow().name.clone())
+            .map(|i| redex.instructions[i].decl.borrow().name.clone())
             .collect::<Vec<_>>()
             .join(" → ");
         format!("<div class='constraint'>redex: {path}</div>")
@@ -85,9 +85,9 @@ impl IRDecl {
             decl.borrow_mut()._owned_bindings = owned_bindings;
         } else {
             decl.borrow_mut().constraints = self.equations.iter().enumerate().map(|(i, c)| (
-                S::new(c.lhs.to_body(es.clone(), S::new(Indexed { params: Vec::new(), lets: Vec::new() }), Vec::new(), 
+                S::new(c.lhs.to_body(es.clone(), S::new(Bindings { params: Vec::new(), lets: Vec::new() }), Vec::new(), 
                     &extend(position, &[Position::Rule(i), Position::LHS]), tokens)),
-                S::new(c.rhs.to_body(es.clone(), S::new(Indexed { params: Vec::new(), lets: Vec::new() }), Vec::new(),
+                S::new(c.rhs.to_body(es.clone(), S::new(Bindings { params: Vec::new(), lets: Vec::new() }), Vec::new(),
                     &extend(position, &[Position::Rule(i), Position::RHS]), tokens)),
                 c.is_redex
             )).collect();
@@ -128,7 +128,7 @@ fn _get_rules(term: &Term, attribution: &mut Vec<String>, owned_linked: &mut Vec
 }
 
 /// Create a `Decl` with the `preferred_name`, appending a suffix such that it is not contained in `es`.
-fn disambiguate_bind(preferred_name: &String, es: &ES) -> Decl {
+fn disambiguate_decl(preferred_name: &String, es: &ES) -> Decl {
     let mut count = 0;
     let mut name = preferred_name.clone();
     while es.index_of( &name).is_some() {
@@ -139,12 +139,12 @@ fn disambiguate_bind(preferred_name: &String, es: &ES) -> Decl {
 }
 
 /// Construct a copy of `bindings` such that the names are not already in `es`.
-fn disambiguate(bindings: W<Indexed>, es: &ES) -> Indexed {
+fn disambiguate(bindings: W<Bindings>, es: &ES) -> Bindings {
     let params = bindings.borrow().params.iter().map(
-        |b| S::new(disambiguate_bind(&b.borrow().name, es))).collect();
+        |b| S::new(disambiguate_decl(&b.borrow().name, es))).collect();
     let lets = bindings.borrow().lets.iter().map(
-        |b| S::new(disambiguate_bind(&b.borrow().name, es))).collect();
-    Indexed { params, lets }
+        |b| S::new(disambiguate_decl(&b.borrow().name, es))).collect();
+    Bindings { params, lets }
 }
 
 impl IRSpine {
@@ -174,7 +174,7 @@ impl IRSpine {
                 }).collect();
 
                 IRSpine {
-                    head: var.bind.borrow().name.clone(),
+                    head: var.decl.borrow().name.clone(),
                     args,
                     premise_rules: whnf.base.borrow().assignment.as_ref().unwrap().var_type.as_ref().map(|typ| get_rules(&typ.codomain())).unwrap_or_default()
                 }
@@ -216,7 +216,7 @@ impl IRSpine {
             meta.borrow().typ.as_ref().unwrap().0.clone()
         ).filter_map(|(db, linked)| {
             if let Some(Some(result)) = test(db, linked, meta.clone()) {
-                let name = result.0.bind.borrow().name.clone();
+                let name = result.0.decl.borrow().name.clone();
 
                 let (index, def) = match db.1 {
                     Index::Param(i) => (i, false),
@@ -246,15 +246,15 @@ impl IRSpine {
     }
 
     /// Finds the head `DeBruijnIndex` in the `es` and creates a Meta with `bindings` and recursively converted arguments.
-    pub fn to_body(&self, es: ES, bindings: S<Indexed>, owned_linked: Vec<S<Linked>>, 
+    pub fn to_body(&self, es: ES, bindings: S<Bindings>, owned_linked: Vec<S<Linked>>, 
         position: &[Position], tokens: &mut Tokenization) -> Meta {
-        let (head, bind) = es.index_of(&self.head).expect(&format!("Undeclared variable: {}", self.head));
-        tokens.tokens.push((position.to_vec(), bind.clone()));
+        let (head, decl) = es.index_of(&self.head).expect(&format!("Undeclared variable: {}", self.head));
+        tokens.tokens.push((position.to_vec(), decl.clone()));
         let args = self.args.iter().enumerate().map(|(i, t)|
             t.to_expr(&es, &extend(position, &[Position::Arg(i)]), tokens, None)).collect();
  
         Meta {
-            assignment: Some(Assignment { head, args, bind, changes: Vec::new(), _owned_linked: owned_linked, has_rigid_type: true, var_type: None }),
+            assignment: Some(Assignment { head, args, decl, changes: Vec::new(), _owned_linked: owned_linked, has_rigid_type: true, var_type: None }),
             typ: None,
             gamma: es,
             constraints: Vec::new(),
@@ -273,8 +273,8 @@ impl IRSpine {
 impl IRExpr {
     /// Extend `es` with fresh `Decl`s for `self.params` and `self.lets`, without compiling equations.
     pub fn add_local(&self, es: &ES, owned_linked: &mut Vec<S<Linked>>, 
-        position: &[Position]) -> (ES, S<Indexed>) {
-        let bindings = S::new(Indexed {
+        position: &[Position]) -> (ES, S<Bindings>) {
+        let bindings = S::new(Bindings {
             params: self.params.iter().enumerate().map(|(i, d)| 
                 S::new(d.to_decl(extend(position, &[Position::Param(i)])))).collect(),
             lets: self.lets.iter().enumerate().map(|(i, d)| 
@@ -307,7 +307,7 @@ impl IRExpr {
         S::new(self.spine.to_body(es, bindings, owned_linked, position, tokens))
     }
 
-    pub fn from_lambda<const RULES: bool>(term: Term, bindings: W<Indexed>, html: bool) -> IRExpr {
+    pub fn from_lambda<const RULES: bool>(term: Term, bindings: W<Bindings>, html: bool) -> IRExpr {
         let mut owned_linked = Vec::new();
         let params = bindings.borrow().params.iter().map(|b|
             IRDecl { name: b.borrow().name.clone(), typ: None, equations: Vec::new() }).collect();

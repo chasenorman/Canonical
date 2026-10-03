@@ -13,13 +13,13 @@ impl Tokenization {
     }
 
     /// Record `bind` as a goal or premise by `polarity`, storing its index in the list on the bind.
-    pub fn declare(&mut self, mut bind: W<Decl>, polarity: Polarity) {
+    pub fn declare(&mut self, mut decl: W<Decl>, polarity: Polarity) {
         let list = match polarity {
             Polarity::Goal => &mut self.goals,
             Polarity::Premise => &mut self.premises
         };
-        bind.borrow_mut().index = list.len();
-        list.push(bind);
+        decl.borrow_mut().index = list.len();
+        list.push(decl);
     }
 }
 

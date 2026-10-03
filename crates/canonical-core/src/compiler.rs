@@ -105,7 +105,7 @@ fn get_compilation_info(typ: Type, goals: &mut Vec<(Type, Vec<(Type, Index)>)>,
 
     let mut children = Vec::new();
 
-    for i in Indexed::iter(bindings.borrow()) {
+    for i in Bindings::iter(bindings.borrow()) {
         let child = &bindings.borrow()[i];
         if child.borrow().typ.is_some() {
             let child = get_compilation_info(Type(child.downgrade(), es.clone()), goals, polarity.opposite(), owned_linked, owned_metas);

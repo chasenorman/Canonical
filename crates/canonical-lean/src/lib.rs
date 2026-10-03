@@ -525,7 +525,7 @@ pub unsafe extern "C" fn refine(decl: *const LeanDecl) -> *const LeanResult {
             redo: Vec::new(),
             autofill: true,
             constraints: false,
-            _owned_bind: problem
+            _owned_decl: problem
         };
 
         match GLOBAL_STATE.get() {

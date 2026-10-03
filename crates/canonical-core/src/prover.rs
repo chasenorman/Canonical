@@ -108,7 +108,7 @@ impl Prover {
                 attempts += 1;
             }
             if let Some(Some((assignment, constraints, info))) = attempt {
-                let weight = heuristic::weight(&goal, &assignment.bind);
+                let weight = heuristic::weight(&goal, &assignment.decl);
                 total_weight += weight;
                 options.push((assignment, constraints, info, weight));
             }
