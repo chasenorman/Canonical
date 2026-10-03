@@ -92,7 +92,7 @@ pub struct Assignment {
     pub head: DeBruijnIndex,
     pub args: Vec<S<Meta>>,
 
-    /// `bind` (redundantly) contains the `Bind` of the `head` symbol in the context Gamma
+    /// `bind` (redundantly) contains the `Decl` of the `head` symbol in the context Gamma
     pub bind: W<Decl>,
 
     /// `changes` and `_owned_linked` allow us to return to the previous state during backtracking.
@@ -361,8 +361,8 @@ pub struct Rule {
 }
 
 /// One step in a path through the problem, viewed as nested declarations and expressions:
-/// a declaration (a param, a let, or the root problem itself) has a `Type` and `Rule(i)`s;
-/// a rule has an `LHS` and `RHS` expression; an expression (an `IRTerm`/`IRType` together
+/// a declaration (a param, a let, or the root problem itself) has a `Type`, and a param or let has `Rule(i)`s;
+/// a rule has an `LHS` and `RHS` expression; an expression (an `IRExpr` together
 /// with its spine) declares `Param(i)`s and `Let(i)`s and applies its head to `Arg(i)`s.
 /// The path of an expression also identifies the occurrence of its head symbol.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -376,16 +376,8 @@ pub enum Position {
     Arg(usize),
 }
 
-/// The `name` and `value` of a variable in the original input problem.
-// pub struct Bind {
-//     pub name: String,
-//     pub constraints: Vec<(S<Meta>, S<Meta>)>,
-//     pub rules: Vec<Rule>,
-//     pub redexes: Vec<Vec<Instruction>>,
-
-//     pub owned_bindings: Vec<S<Indexed<S<Bind>>>>
-// }
-
+/// A variable declared in the original input problem, with its `name`, optional `typ`, and equations:
+/// a let's equations are compiled into `rules` and `redexes`, and a param's into `constraints`.
 pub struct Decl {
     pub name: String,
     pub constraints: Vec<(S<Meta>, S<Meta>, bool)>,
@@ -516,7 +508,7 @@ impl ES {
         })
     }
 
-    /// Finds the `DeBruijnIndex` and `Bind` with a certain `name` in this `ES`.
+    /// Finds the `DeBruijnIndex` and `Decl` with a certain `name` in this `ES`.
     pub fn index_of(&self, name: &String) -> Option<(DeBruijnIndex, W<Decl>)> {
         self.iter().find(|(db, linked)| &linked.borrow().node.bindings.borrow()[db.1].borrow().name == name)
             .map(|(db, linked)| (db, linked.borrow().node.bindings.borrow()[db.1].downgrade()))
@@ -671,16 +663,8 @@ impl Polarity {
     }
 }
 
-/// A `DeBruijnIndex`-ed type, with a `codomain` (return type)
-/// and parameter/let `types` 
-// pub struct TypeBase {
-//     pub codomain: S<Meta>,
-//     pub types: S<Indexed<Option<S<TypeBase>>>>,
-//     pub bind: W<Bind>
-// }
-
 impl Meta {
-    /// Create new metavariables to fill the parameters of this TypeBase.
+    /// Create new metavariables to fill the parameters of this type, whose `bindings` declare them.
     pub fn args_metas(&self, parent: Option<W<Meta>>) -> Vec<S<Meta>> {
         let arity = self.bindings.borrow().params.len();
         let mut args = Vec::with_capacity(arity);
@@ -704,9 +688,9 @@ impl Meta {
     }
 }
 
-/// A Type is a `DeBruijnIndex`-ed `TypeBase` with an explicit substitution `es` 
+/// A Type is the `DeBruijnIndex`-ed type of a `Decl` with an explicit substitution `es`
 /// that associates a `DeBruijnIndex` with a variable or term.
-/// The `Bind` corresponds to the variable in the original problem that has this `Type`. 
+/// The `Decl` is the variable in the original problem that has this `Type`.
 #[derive(Clone)]
 pub struct Type(pub W<Decl>, pub ES);
 

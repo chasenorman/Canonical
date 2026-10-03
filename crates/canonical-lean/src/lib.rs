@@ -517,8 +517,7 @@ pub unsafe extern "C" fn refine(decl: *const LeanDecl) -> *const LeanResult {
     to_lean_result(None, || {
         let ir_decl = to_ir_decl(decl);
         let (problem, _) = ir_decl.to_problem();
-        let prover = Prover::new(problem.downgrade());
-        let current = Meta::try_clone(prover.meta.downgrade()).unwrap().0;
+        let current = Prover::new(problem.downgrade()).meta;
 
         let new_state = AppState {
             current,
@@ -526,8 +525,7 @@ pub unsafe extern "C" fn refine(decl: *const LeanDecl) -> *const LeanResult {
             redo: Vec::new(),
             autofill: true,
             constraints: false,
-            _owned_bind: problem,
-            _owned_provers: vec![prover]
+            _owned_bind: problem
         };
 
         match GLOBAL_STATE.get() {

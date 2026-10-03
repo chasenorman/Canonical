@@ -16,9 +16,7 @@ pub struct Prover {
     /// The root metavariable.
     pub meta: S<Meta>,
     /// In case we only want to solve a subtree of the root, this defines the root for `next`.
-    pub next_root: W<Meta>,
-    /// Owns the nodes of the root metavariable's ES.
-    pub _owned_linked: Vec<S<Linked>>
+    pub next_root: W<Meta>
 }
 
 unsafe impl Send for Prover {}
@@ -26,32 +24,12 @@ unsafe impl Send for W<Meta> {}
 
 impl Prover {
     /// Creates a `Prover` solving for `decl`, whose type was translated under the empty ES.
-    /// The metavariable's gamma contains the variables of the type, with `decl` as the typing context.
+    /// The node binding the variables of the type is given `decl` as its typing context.
     pub fn new(decl: W<Decl>) -> Self {
-        let mut owned_linked = Vec::new();
         let typ = Type(decl.clone(), decl.borrow().typ.as_ref().unwrap().borrow().gamma.clone());
-        let vars = typ.1.linked.clone().unwrap();
-
-        let gamma = ES::new().append(Node {
-            entry: Entry {
-                params_id: vars.borrow().node.entry.params_id,
-                lets_id: vars.borrow().node.entry.lets_id,
-                subst: None,
-                context: Some(typ.clone())
-            },
-            bindings: vars.borrow().node.bindings.clone()
-        }, &mut owned_linked);
-
-        let mut meta = S::new(Meta::new(typ));
-        meta.borrow_mut().gamma = gamma;
-        Prover { next_root: meta.downgrade(), meta, _owned_linked: owned_linked }
-    }
-
-    /// Clone the term rooted at `meta` into a fresh `Prover` for the same problem.
-    pub fn from_root(meta: W<Meta>) -> Option<Prover> {
-        let prover = Prover::new(meta.borrow().typ.as_ref().unwrap().0.clone());
-        let mut map = HashMap::default();
-        transfer(meta, prover.meta.downgrade(), &mut map).then_some(prover)
+        typ.1.linked.clone().unwrap().borrow_mut().node.entry.context = Some(typ.clone());
+        let meta = S::new(Meta::new(typ));
+        Prover { next_root: meta.downgrade(), meta }
     }
 
     /// Gets the current (partial) term of the prover.
@@ -180,10 +158,13 @@ impl Prover {
             next.meta.borrow_mut().assign(assignment, constraints);
 
             next.meta.borrow_mut().branching = total_weight / weight;
-            let result = self.try_clone();
+            let result = Meta::try_clone(self.meta.downgrade());
 
             next.meta.borrow_mut().unassign();
-            result.map(|(prover, map)| (prover, map.get(&next.meta).unwrap().clone(), info))
+            result.map(|(meta, map)| (
+                Prover { meta, next_root: map.get(&self.next_root).unwrap().clone() },
+                map.get(&next.meta).unwrap().clone(), info
+            ))
         }).collect();
         NUM_JOBS.fetch_add(provers.len(), Ordering::Acquire);
 
@@ -233,16 +214,6 @@ impl Prover {
         acc
     }
 
-    /// Return a clone of this prover and a map of metavariables between this and the new clone, with `stats_buffer` moved into `stats`.
-    /// The clone is created with `Prover::new` for the same declaration.
-    pub fn try_clone(&self) -> Option<(Self, HashMap<W<Meta>, W<Meta>>)> {
-        let mut prover = Prover::new(self.meta.borrow().typ.as_ref().unwrap().0.clone());
-        let mut map = HashMap::default();
-        if !transfer(self.meta.downgrade(), prover.meta.downgrade(), &mut map) { return None }
-        prover.next_root = map.get(&self.next_root).unwrap().clone();
-        Some((prover, map))
-    }
-
     /// Accumulate the statistics of `other` into self.
     fn accumulate(&self, other: Prover) {
         accumulate_stats(self.meta.downgrade(), other.meta.downgrade());
@@ -289,9 +260,7 @@ fn accumulate_stats(mut to: W<Meta>, from: W<Meta>) {
 impl Meta {
     /// Return a clone of this metvariable and a map of metavariables between this and the new clone, with `stats_buffer` moved into `stats`.
     pub fn try_clone(meta: W<Meta>) -> Option<(S<Meta>, HashMap<W<Meta>, W<Meta>>)> {
-        let mut new = S::new(Meta::new(meta.borrow().typ.as_ref().unwrap().clone()));
-        // The gamma of a prover's root differs from the ES of its type, so it is shared with `meta`.
-        new.borrow_mut().gamma = meta.borrow().gamma.clone();
+        let new = S::new(Meta::new(meta.borrow().typ.as_ref().unwrap().clone()));
         let mut map = HashMap::default();
         if transfer(meta, new.downgrade(), &mut map) {
             return Some((new, map))

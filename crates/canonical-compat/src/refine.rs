@@ -62,9 +62,7 @@ pub struct AppState {
     pub constraints: bool,
 
     // For ownership purposes.
-    pub _owned_bind: S<Decl>,
-    /// Provers whose nodes may be referenced by `current` and the undo/redo stacks.
-    pub _owned_provers: Vec<Prover>
+    pub _owned_bind: S<Decl>
 }
 
 /// Sent from JS to represent an assignment.
@@ -213,11 +211,9 @@ async fn canonical(State(state): State<Arc<Mutex<AppState>>>) -> Json<serde_json
         return Json(json!({}))
     };
     let meta = Meta::try_clone(state.current.downgrade()).unwrap().0;
-    let prover = Prover { next_root: meta.downgrade(), meta, _owned_linked: Vec::new() };
+    let prover = Prover { next_root: meta.downgrade(), meta };
 
-    if let Some(solved) = canonical_simple(prover) {
-        let term = Meta::try_clone(solved.meta.downgrade()).unwrap().0;
-        state._owned_provers.push(solved);
+    if let Some(term) = canonical_simple(prover) {
         let prev = mem::replace(&mut state.current, term);
         state.redo.clear();
         state.undo.push(prev);
@@ -234,10 +230,8 @@ async fn canonical1(State(state): State<Arc<Mutex<AppState>>>, Json(solve1) : Js
     let (meta, map) = Meta::try_clone(current.clone()).unwrap();
     let next_root = map.get(&find_with_id(current, solve1.meta_id).unwrap()).unwrap().clone();
 
-    let prover = Prover { next_root, meta, _owned_linked: Vec::new() };
-    if let Some(solved) = canonical_simple(prover) {
-        let term = Meta::try_clone(solved.meta.downgrade()).unwrap().0;
-        state._owned_provers.push(solved);
+    let prover = Prover { next_root, meta };
+    if let Some(term) = canonical_simple(prover) {
         let prev = mem::replace(&mut state.current, term);
         state.redo.clear();
         state.undo.push(prev);
@@ -245,22 +239,22 @@ async fn canonical1(State(state): State<Arc<Mutex<AppState>>>, Json(solve1) : Js
     Json(json!({}))
 }
 
-/// Run Canonical for 1 second on `prover`, returning a self-contained prover with the solution if one is found.
-fn canonical_simple(prover: Prover) -> Option<Prover> {
+/// Run Canonical for 1 second on `prover`, returning the term if one is found.
+fn canonical_simple(prover: Prover) -> Option<S<Meta>> {
     let (tx, rx) = mpsc::channel();
 
     thread::spawn(move || {
         prover.prove(&|value| {
-            if let Some(solved) = Prover::from_root(value.base.clone()) {
-                let _ = tx.send(Some(solved));
+            if let Some(cloned) = Meta::try_clone(value.base) {
+                let _ = tx.send(Some(cloned.0));
             }
         }, false);
         tx.send(None)
     });
 
-    let solved = rx.recv_timeout(Duration::from_secs(1));
+    let term = rx.recv_timeout(Duration::from_secs(1));
     RUN.store(false, Ordering::Relaxed);
-    solved.ok().flatten()
+    term.ok().flatten()
 }
 
 /// Find a metavariable with the given hashcode in the children of `meta`.

@@ -76,15 +76,13 @@ pub async fn main() {
     let problem = IRDecl::load("lean/debug.json".to_string());
     let (decl, _) = problem.to_problem();
 
-    let prover = Prover::new(decl.downgrade());
     let state = AppState {
-        current: Meta::try_clone(prover.meta.downgrade()).unwrap().0,
+        current: Prover::new(decl.downgrade()).meta,
         undo: Vec::new(),
         redo: Vec::new(),
         autofill: true,
         constraints: false,
-        _owned_bind: decl,
-        _owned_provers: vec![prover]
+        _owned_bind: decl
     };
 
     start_server(state).await;

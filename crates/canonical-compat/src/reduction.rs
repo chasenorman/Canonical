@@ -100,7 +100,7 @@ fn get_bindings(build: &mut Build, term: &IRSpine, es: ES, position: &[Position]
 
 fn _to_rules(state: Vec<(&mut Build, &IRSpine, ES, Vec<Position>)>, owned_linked: &mut Vec<S<Linked>>, 
     owned_bindings: &mut Vec<S<Indexed>>, tokens: &mut Tokenization) {
-    // Partition by the head `Bind`.
+    // Partition by the head `Decl`.
     let mut map: HashMap<W<Decl>, Vec<(&mut Build, &IRSpine, ES, Vec<Position>)>> = HashMap::new();
     for (build, term, es, position) in state.into_iter() {
         if let Some((_, bind)) = es.index_of(&term.head) {

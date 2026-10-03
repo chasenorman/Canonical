@@ -99,13 +99,11 @@ impl IRDecl {
     }
 
     /// Translate this declaration into a `Decl` to be solved for by a `Prover`, and compile the problem.
-    /// The declaration is translated under the empty ES, so its equations cannot refer to any variables.
     pub fn to_problem(&self) -> (S<Decl>, Tokenization) {
         assert!(self.typ.is_some(), "Declaration {} has no type.", self.name);
         let mut decl = S::new(self.to_decl(Vec::new()));
         let mut tokens = Tokenization::new();
-        let mut owned_linked = Vec::new();
-        self.translate::<false>(&mut decl, &ES::new(), &mut owned_linked, &[], &mut tokens, Some(Polarity::Goal));
+        self.translate::<false>(&mut decl, &ES::new(), &mut Vec::new(), &[], &mut tokens, Some(Polarity::Goal));
         compile(Type(decl.downgrade(), ES::new()));
         (decl, tokens)
     }
