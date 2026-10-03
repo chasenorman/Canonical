@@ -1,12 +1,10 @@
 use canonical_core::core::*;
-use canonical_core::stats::*;
 use canonical_core::prover::Prover;
 pub mod ir;
 pub mod refine;
 pub mod reduction;
 pub mod ai;
 use ir::*;
-use std::time::SystemTime;
 use crate::refine::{AppState, start_server};
 
 /// Manually construct an IRExpr body.

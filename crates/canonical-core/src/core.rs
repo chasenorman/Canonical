@@ -393,7 +393,8 @@ pub struct Decl {
     pub redexes: Vec<Vec<Instruction>>,
     pub typ: Option<S<Meta>>,
     pub position: Vec<Position>,
-    pub _owned_bindings: Vec<S<Indexed>>
+    pub _owned_bindings: Vec<S<Indexed>>,
+    pub index: usize
 }
 
 impl Decl {
@@ -406,6 +407,7 @@ impl Decl {
             typ: None,
             position,
             _owned_bindings: Vec::new(),
+            index: usize::MAX
         }
     }
 }

@@ -78,12 +78,6 @@ impl IRDecl {
     /// equations on a param constrain the instantiation of its variables, checked as `Equation`s.
     fn translate<const LET: bool>(&self, decl: &mut S<Decl>, es: &ES, owned_linked: &mut Vec<S<Linked>>,
         position: &[Position], tokens: &mut Tokenization, polarity: Option<Polarity>) {
-        match polarity {
-            Some(Polarity::Goal) => tokens.goals.push(decl.downgrade()),
-            Some(Polarity::Premise) => tokens.premises.push(decl.downgrade()),
-            None => {}
-        }
-
         if LET {
             let mut owned_bindings = Vec::new();
             decl.borrow_mut().rules = to_rules(&self.equations, es, owned_linked, &mut owned_bindings, position, tokens);
@@ -98,7 +92,10 @@ impl IRDecl {
                 c.is_redex
             )).collect();
         }
-        decl.borrow_mut().typ = self.typ.as_ref().map(|t| t.to_expr(es, &extend(position, &[Position::Type]), tokens, polarity));
+        if let (Some(polarity), Some(typ)) = (polarity, &self.typ) {
+            tokens.declare(decl.downgrade(), polarity);
+            decl.borrow_mut().typ = Some(typ.to_expr(es, &extend(position, &[Position::Type]), tokens, Some(polarity)));
+        } 
     }
 
     /// Translate this declaration into a `Decl` to be solved for by a `Prover`, and compile the problem.
