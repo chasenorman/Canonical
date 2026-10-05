@@ -136,3 +136,5 @@ Cargo.lock
 lean/generated-rust-lib/*
 .lake
 lake-manifest.json
+
+lean/debug.json

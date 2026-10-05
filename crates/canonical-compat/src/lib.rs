@@ -1,12 +1,13 @@
 use canonical_core::core::*;
-use canonical_core::stats::*;
 use canonical_core::prover::Prover;
 pub mod ir;
 pub mod refine;
 pub mod reduction;
 pub mod ai;
 use ir::*;
+use canonical_core::stats::STEP_COUNT;
 use std::time::SystemTime;
+// use crate::refine::{AppState, start_server};
 
 /// Manually construct an IRExpr body.
 #[allow(unused_macros)]
@@ -75,19 +76,15 @@ macro_rules! P {
 #[tokio::main]
 pub async fn main() {
     let problem = IRDecl::load("lean/debug.json".to_string());
-    let mut owned_linked = Vec::new();
+    let (decl, _) = problem.to_problem();
 
-    let decl = problem.to_problem(&mut owned_linked);
-    let prover = Prover::new(decl.downgrade());
     // let state = AppState {
-    //     current: Meta::try_clone(prover.metas[0].downgrade()).unwrap().0,
+    //     current: Prover::new(decl.downgrade()).meta,
     //     undo: Vec::new(),
     //     redo: Vec::new(),
     //     autofill: true,
     //     constraints: false,
-    //     _owned_linked: owned_linked,
-    //     _owned_bind: decl,
-    //     _owned_provers: vec![prover]
+    //     _owned_decl: decl
     // };
 
     // start_server(state).await;
@@ -105,7 +102,7 @@ pub async fn main() {
     });
     
     let now = SystemTime::now();
-    prover.prove(&|term: Term| {
+    Prover::new(decl.downgrade()).prove(&|term: Term| {
         let mut owned_linked = Vec::new();
         println!("{}", now.elapsed().unwrap().as_secs_f32());
         println!("{}", IRSpine::from_body::<false>(term.whnf::<false, ()>(&mut owned_linked, &mut (), false), false));

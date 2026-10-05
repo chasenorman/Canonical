@@ -1,25 +1,39 @@
-use std::collections::HashMap;
-use std::fs::File;
-use crate::ir::*;
-use serde::{Deserialize, Serialize};
+use canonical_core::core::{Decl, Position, Polarity};
+use canonical_core::memory::W;
 
-#[derive(Serialize, Deserialize)]
-pub struct Example {
-    pub problem: IRDecl,
-    pub unifications: HashMap<String, HashMap<String, u32>>
+pub struct Tokenization {
+    pub tokens: Vec<(Vec<Position>, W<Decl>)>,
+    pub goals: Vec<W<Decl>>,
+    pub premises: Vec<W<Decl>>
 }
 
-impl Example {
-    pub fn save(self: &Example, path: String) {
-        let mut file = File::create(path).unwrap();
-        rmp_serde::encode::write(&mut file, self).unwrap();
+impl Tokenization {
+    pub fn new() -> Tokenization {
+        Tokenization { tokens: Vec::new(), goals: Vec::new(), premises: Vec::new() }
     }
 
-    pub fn load(path: String) -> Example {
-        let file = File::open(path).unwrap();
-        rmp_serde::decode::from_read(file).unwrap()
+    /// Record `bind` as a goal or premise by `polarity`, storing its index in the list on the bind.
+    pub fn declare(&mut self, mut decl: W<Decl>, polarity: Polarity) {
+        let list = match polarity {
+            Polarity::Goal => &mut self.goals,
+            Polarity::Premise => &mut self.premises
+        };
+        decl.borrow_mut().index = list.len();
+        list.push(decl);
     }
 }
+
+// impl Example {
+//     pub fn save(self: &Example, path: String) {
+//         let mut file = File::create(path).unwrap();
+//         rmp_serde::encode::write(&mut file, self).unwrap();
+//     }
+
+//     pub fn load(path: String) -> Example {
+//         let file = File::open(path).unwrap();
+//         rmp_serde::decode::from_read(file).unwrap()
+//     }
+// }
 
 // struct Token {
 //     name: String

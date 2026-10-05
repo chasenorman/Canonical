@@ -62,10 +62,7 @@ pub struct AppState {
     pub constraints: bool,
 
     // For ownership purposes.
-    pub _owned_linked: Vec<S<Linked>>,
-    pub _owned_bind: S<Decl>,
-    /// Provers whose nodes may be referenced by `current` and the undo/redo stacks.
-    pub _owned_provers: Vec<Prover>
+    pub _owned_decl: S<Decl>
 }
 
 /// Sent from JS to represent an assignment.
@@ -252,8 +249,8 @@ fn canonical_simple(prover: Prover) -> Option<Prover> {
 
     thread::spawn(move || {
         prover.prove(&|value| {
-            if let Some(solved) = Prover::from_root(value.base.clone()) {
-                let _ = tx.send(Some(solved));
+            if let Some(cloned) = Meta::try_clone(value.base) {
+                let _ = tx.send(Some(cloned.0));
             }
         }, false);
         tx.send(None)

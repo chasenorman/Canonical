@@ -38,7 +38,7 @@ pub fn test(head: DeBruijnIndex, curr: W<Linked>, mut meta: W<Meta>) -> Option<O
     let var_type = curr.borrow().node.entry.context.as_ref().unwrap().get(head.1, Entry::subst(Subst(WVec::new(&args), gamma.clone()), next_u64()), &mut _owned_linked);
 
     meta.borrow_mut().assignment = Some(Assignment {
-        head, args, bind: var_type.0.clone(), changes: Vec::new(), _owned_linked,
+        head, args, decl: var_type.0.clone(), changes: Vec::new(), _owned_linked,
         has_rigid_type: matches!(var_type.codomain().whnf::<true, ()>(&mut Vec::new(), &mut (), false).1, Head::Var(_)),
         var_type: Some(var_type.clone()),
     });

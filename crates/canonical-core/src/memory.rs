@@ -56,11 +56,6 @@ impl<T> W<T> {
     pub fn points_to(&self, s: &S<T>) -> bool {
         self.ptr == s.data
     }
-
-    /// Cast to usize.
-    pub(crate) fn usize(&self) -> usize {
-        self.ptr as usize
-    }
 }
 
 impl<T> WVec<T> {

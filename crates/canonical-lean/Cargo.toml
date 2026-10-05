@@ -4,10 +4,18 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-canonical-compat = { path = "../canonical-compat" }
-canonical-core = { path = "../canonical-core" }
+canonical-compat = { path = "../canonical-compat", default-features = false }
+canonical-core = { path = "../canonical-core", default-features = false }
 once_cell = "1.21.1"
 tokio = { version = "1.44.2", features = ["full"] }
 
 [lib]
 crate-type = ["cdylib"]
+
+[features]
+# Use the Lean host's mimalloc for Rust allocations. Off by default so a
+# workspace-wide build (rust-analyzer, root `cargo build`) doesn't collide with
+# canonical-compat's bundled mimalloc; `build_lean.py` and the release workflow
+# turn it on. Without it the dylib still works with Lean (Lean objects always go
+# through the host's `mi_malloc_small`), Rust just uses the system allocator.
+host-mimalloc = ["canonical-core/host-mimalloc"]

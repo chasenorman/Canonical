@@ -2,23 +2,10 @@ use crate::core::*;
 use crate::memory::*;
 use std::sync::Arc;
 use arc_swap::ArcSwap;
-use rustc_hash::FxHashMap as HashMap;
 use once_cell::sync::Lazy;
 use std::iter;
 
-pub static COMPILATION: Lazy<ArcSwap<HashMap<(usize, usize), Vec<Index>>>> = Lazy::new(|| ArcSwap::from_pointee(HashMap::default()));
-
-#[derive(Clone, Copy)]
-enum Polarity { Goal, Premise }
-
-impl Polarity {
-    fn opposite(&self) -> Polarity {
-        match self {
-            Polarity::Goal => Polarity::Premise,
-            Polarity::Premise => Polarity::Goal
-        }
-    }
-}
+pub static COMPILATION: Lazy<ArcSwap<Vec<Vec<Vec<Index>>>>> = Lazy::new(|| ArcSwap::from_pointee(Vec::new()));
 
 fn get_type(term: Term, owned_linked: &mut Vec<S<Linked>>) -> Option<Term> {
     let assn = term.base.borrow().assignment.as_ref().unwrap();
@@ -29,7 +16,7 @@ fn get_type(term: Term, owned_linked: &mut Vec<S<Linked>>) -> Option<Term> {
     return Some(Term {
         base: tb.downgrade(),
         es: sub_es.append(Node {
-            entry: Entry::subst(Subst(WVec::new(&assn.args), term.es.clone()), next_u64()),
+            entry: Entry::subst(Subst(WVec::new(&assn.args), term.es.clone())),
             bindings: tb.borrow().bindings.clone()
         }, owned_linked)
     })
@@ -56,7 +43,7 @@ pub fn compile(typ: Type) {
     let mut owned_metas = Vec::new();
     get_compilation_info(typ, &mut goals, Polarity::Goal, &mut owned_linked, &mut owned_metas);
     // println!("{:?}", goals.iter().map(|(typ, children)| typ.2.name).collect::<Vec<_>>());
-    let mut compilation = HashMap::default();
+    let mut compilation = vec![vec![Vec::new(); goals.len()]; goals.len()];
     // let mut count: u32 = 0;
     for goal in goals.iter() {
         for goal2 in goals.iter() {
@@ -69,7 +56,7 @@ pub fn compile(typ: Type) {
                 }
                 // println!("{} <- {}: {}", goal.0.2.borrow().name, premise.0.2.borrow().name, success);
             }
-            compilation.insert((goal.0.0.usize(), goal2.0.0.usize()), unifications);
+            compilation[goal.0.0.borrow().index][goal2.0.0.borrow().index] = unifications;
         }
     }
     COMPILATION.store(Arc::new(compilation));
@@ -81,13 +68,16 @@ pub fn compile(typ: Type) {
 impl ES {
     /// Returns an iterator of `DeBruijnIndex` in this `ES``, along with the `Linked` they are rooted at.
     pub fn iter_unify(&self, decl: W<Decl>) -> impl Iterator<Item = (DeBruijnIndex, W<Linked>)> {
-        iter::successors(self.linked.clone(), |node|
+        let compilation = COMPILATION.load_full();
+        let goal = decl.borrow().index;
+        iter::successors(self.linked.clone(), |node| 
             node.borrow().tail.clone() // Iterate over the linked list.
-        ).enumerate().flat_map(move |(db, node)|
-            COMPILATION.load().get(&(decl.usize(), node.borrow().node.entry.context.as_ref().unwrap().0.usize())).unwrap().iter().map(|item|
+        ).enumerate().flat_map(move |(db, node)| {
+            let context = node.borrow().node.entry.context.as_ref().unwrap().0.borrow().index;
+            compilation[goal][context].iter().map(|item| 
                 (DeBruijnIndex(DeBruijn(db as u32), item.clone()), node.clone())
             ).collect::<Vec<(DeBruijnIndex, W<Linked>)>>().into_iter()
-        )
+        })
     }
 }
 
@@ -115,7 +105,7 @@ fn get_compilation_info(typ: Type, goals: &mut Vec<(Type, Vec<(Type, Index)>)>,
 
     let mut children = Vec::new();
 
-    for i in Indexed::iter(bindings.borrow()) {
+    for i in Bindings::iter(bindings.borrow()) {
         let child = &bindings.borrow()[i];
         if child.borrow().typ.is_some() {
             let child = get_compilation_info(Type(child.downgrade(), es.clone()), goals, polarity.opposite(), owned_linked, owned_metas);

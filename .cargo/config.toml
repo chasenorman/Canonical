@@ -1,5 +1,11 @@
 [target.'cfg(target_os = "macos")']
 rustflags = [
   "-C", "link-arg=-Wl,-install_name,@loader_path/libcanonical_lean.dylib",
-  "-C", "link-arg=-Wl,-rpath,@loader_path"
+  "-C", "link-arg=-Wl,-rpath,@loader_path",
+  # Resolve Lean runtime symbols from whatever process loads us (the `lean`
+  # server's libleanshared, or an executable's statically linked runtime),
+  # instead of pulling in a second copy of libleanshared. Same flags Lake uses
+  # for precompiled module dylibs.
+  "-C", "link-arg=-Wl,-undefined,dynamic_lookup",
+  "-C", "link-arg=-Wl,-no_fixup_chains"
 ]

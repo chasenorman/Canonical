@@ -48,7 +48,7 @@ example (f : ℝ → ℝ) (u : ℕ → ℝ) (x₀ : ℝ)
     sequence_tendsto (f ∘ u) (f x₀) := by
   canonical
 
-instance {G : Type} [Group G] : MulHom G G := by
+example {G : Type} [Group G] : MulHom G G := by
   canonical (count := 2) [MulHom, one_mul]
 
 theorem false_of_a_eq_not_a {a : Prop} (h : a = Not a) : False :=
