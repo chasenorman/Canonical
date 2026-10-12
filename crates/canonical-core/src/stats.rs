@@ -59,7 +59,7 @@ impl MetaInfo {
     pub fn new(meta: W<Meta>) -> Self {
         let has_rigid_equation = meta.borrow().constraints.iter().any(|c| c.rigid());
         // Bins are keyed by the index of the goal, with the low bit for `has_rigid_equation`.
-        let goal = meta.borrow().typ.as_ref().unwrap().2.borrow().index;
+        let goal = meta.borrow().typ.as_ref().unwrap().0.borrow().index;
         let bin = goal << 1 | has_rigid_equation as usize;
         let current_stats = META_MAP.load().get(&bin).map(|x| x.clone()).unwrap_or_else(MetaStats::new);
         let mut future_stats = if has_rigid_equation { MetaStats::new() } else {
@@ -176,8 +176,8 @@ impl AssignmentInfo {
         let had_rigid_equation = meta.borrow().has_rigid_equation;
         let has_rigid_type = meta.borrow().assignment.as_ref().unwrap().has_rigid_type;
         // Bins are keyed by the indices of the goal and the assigned premise, with the low bit for `has_rigid_type`.
-        let goal = meta.borrow().typ.as_ref().unwrap().2.borrow().index;
-        let premise = meta.borrow().assignment.as_ref().unwrap().bind.borrow().index;
+        let goal = meta.borrow().typ.as_ref().unwrap().0.borrow().index;
+        let premise = meta.borrow().assignment.as_ref().unwrap().decl.borrow().index;
         let bin = goal << 33 | premise << 1 | has_rigid_type as usize;
         let stats = ASSIGNMENT_MAP.load().get(&bin).map(|x| x.clone()).unwrap_or_else(AssignmentStats::new);
 

@@ -13,15 +13,31 @@ use burn::tensor::{DType, Int, Tensor, TensorData};
 use burn::{Dispatch, DispatchDevice};
 use once_cell::sync::Lazy;
 
-use crate::core::{Bind, Position};
+use crate::core::{Decl, Polarity, Position};
 use crate::heuristic::WEIGHTS;
 use crate::memory::W;
 
 #[derive(Default)]
 pub struct Tokenization {
-    pub tokens: Vec<(Vec<Position>, W<Bind>)>,
-    pub goals: Vec<W<Bind>>,
-    pub premises: Vec<W<Bind>>
+    pub tokens: Vec<(Vec<Position>, W<Decl>)>,
+    pub goals: Vec<W<Decl>>,
+    pub premises: Vec<W<Decl>>
+}
+
+impl Tokenization {
+    pub fn new() -> Tokenization {
+        Tokenization::default()
+    }
+
+    /// Record `decl` as a goal or premise by `polarity`, storing its index in the list on the decl.
+    pub fn declare(&mut self, mut decl: W<Decl>, polarity: Polarity) {
+        let list = match polarity {
+            Polarity::Goal => &mut self.goals,
+            Polarity::Premise => &mut self.premises
+        };
+        decl.borrow_mut().index = list.len();
+        list.push(decl);
+    }
 }
 
 #[allow(dead_code, clippy::all)]
@@ -100,7 +116,7 @@ fn run((model, device): &(Model, DispatchDevice), inputs: [TensorData; 4]) -> Ve
     weight.chunks(n).map(<[f32]>::to_vec).collect()
 }
 
-/// `tokens`' goal × premise weights, indexed by `Bind::index`, or `None` if the model
+/// `tokens`' goal × premise weights, indexed by `Decl::index`, or `None` if the model
 /// doesn't apply.
 pub fn weight(tokens: &Tokenization) -> Option<Vec<Vec<f32>>> {
     inputs(tokens).map(|inputs| run(&MODEL.lock().unwrap(), inputs))

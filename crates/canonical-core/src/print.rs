@@ -1,6 +1,5 @@
 use crate::core::*;
 use std::fmt;
-use crate::memory::S;
 
 impl WHNF {
     /// A weak head normal form term needs parentheses if there are arguments.
@@ -12,7 +11,7 @@ impl WHNF {
     }
 }
 
-impl<T> Indexed<T> {
+impl Bindings {
     /// A lambda requires parentheses if there are parameters or lets.
     fn needs_parens(&self) -> bool {
         self.params.len() > 0 || self.lets.len() > 0
@@ -24,7 +23,7 @@ impl fmt::Display for Term {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut owned_linked = Vec::new();
         // prints the reduced form. 
-        let whnf = self.whnf::<true, ()>(&mut owned_linked, &mut ());
+        let whnf = self.whnf::<true, ()>(&mut owned_linked, &mut (), false);
         let needs_parens = self.base.borrow().bindings.borrow().needs_parens() || whnf.needs_parens();
         if needs_parens { write!(f, "(")? }
         self.base.borrow().bindings.borrow().fmt(f)?;
@@ -39,7 +38,7 @@ impl fmt::Display for WHNF {
         match &self.0.base.borrow().assignment {
             Some(assignment) => {
                 if let Head::Var(var) = &self.1 {
-                    write!(f, "{}", var.bind.borrow().name)?;
+                    write!(f, "{}", var.decl.borrow().name)?;
                 } else {
                     write!(f, "...")?;
                 }
@@ -52,7 +51,7 @@ impl fmt::Display for WHNF {
             }
             None => { 
                 if let Some(typ) = &self.0.base.borrow().typ {
-                    write!(f, "?{}", typ.2.borrow().name.clone())
+                    write!(f, "?{}", typ.0.borrow().name.clone())
                 } else {
                     write!(f, "?")
                 }
@@ -61,7 +60,7 @@ impl fmt::Display for WHNF {
     }
 }
 
-impl fmt::Display for Indexed<S<Bind>> {
+impl fmt::Display for Bindings {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.needs_parens() { write!(f, "λ")? }
         for param in &self.params {
@@ -79,7 +78,7 @@ impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let codomain = self.codomain();
         let mut owned_linked = Vec::new();
-        let whnf = codomain.whnf::<true, ()>(&mut owned_linked, &mut ());
+        let whnf = codomain.whnf::<true, ()>(&mut owned_linked, &mut (), false);
         let needs_parens = codomain.base.borrow().bindings.borrow().needs_parens() || whnf.needs_parens();
         if needs_parens { write!(f, "(")? }
         codomain.base.borrow().bindings.borrow().fmt(f)?;
@@ -93,7 +92,7 @@ impl fmt::Debug for Rule {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for symbol in self.pattern.iter() {
             if let Some(symbol) = symbol {
-                write!(f, "{} ", symbol.bind.borrow().name)?;
+                write!(f, "{} ", symbol.decl.borrow().name)?;
             } else {
                 write!(f, "* ")?;
             }

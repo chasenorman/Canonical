@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use canonical_compat::ir::IRType;
+use canonical_compat::ir::IRDecl;
 use canonical_core::heuristic::WEIGHTS;
 use serde_json::Value;
 
@@ -14,8 +14,7 @@ const DIR: &str = env!("CARGO_MANIFEST_DIR");
 
 #[test]
 fn matches_checkpoint() {
-    let (_tb, _bind, tokens) =
-        IRType::load(format!("{DIR}/tests/problem.json")).to_problem("problem".to_string());
+    let (_decl, tokens) = IRDecl::load(format!("{DIR}/tests/problem.json")).to_problem();
     let weight = canonical_core::ai::weight(&tokens).unwrap();
 
     let expected: Value =
@@ -39,11 +38,10 @@ fn matches_checkpoint() {
     }
 }
 
+/// `to_problem` starts the heuristic, which fills `WEIGHTS` in the background.
 #[test]
 fn start_sets_weight() {
-    let (_tb, _bind, tokens) =
-        IRType::load(format!("{DIR}/tests/problem.json")).to_problem("problem".to_string());
-    canonical_core::ai::start(&tokens);
+    let (_decl, tokens) = IRDecl::load(format!("{DIR}/tests/problem.json")).to_problem();
     let want = canonical_core::ai::weight(&tokens).unwrap();
 
     let deadline = Instant::now() + Duration::from_secs(60);
