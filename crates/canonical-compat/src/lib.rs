@@ -75,7 +75,8 @@ macro_rules! P {
 #[tokio::main]
 pub async fn main() {
     let problem = IRDecl::load("lean/debug.json".to_string());
-    let (decl, _) = problem.to_problem();
+    let (decl, tokens) = problem.to_problem();
+    canonical_core::ai::start(&tokens);
 
     // let state = AppState {
     //     current: Prover::new(decl.downgrade()).meta,

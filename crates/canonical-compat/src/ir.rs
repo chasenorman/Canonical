@@ -1,8 +1,9 @@
 use canonical_core::core::*;
 use canonical_core::memory::{S, W};
-use canonical_core::ai::{self, Tokenization};
+use canonical_core::ai::Tokenization;
 use canonical_core::search::test;
 use canonical_core::compiler::compile;
+use canonical_core::heuristic::reset_weights;
 use std::fmt;
 use serde::{Serialize, Deserialize};
 use std::fs::File;
@@ -105,14 +106,13 @@ impl IRDecl {
         }
     }
 
-    /// Translate this declaration into a `Decl` to be solved for by a `Prover`, start the heuristic
-    /// on its tokenization, and compile the problem.
+    /// Translate this declaration into a `Decl` to be solved for by a `Prover` and compile the problem.
     pub fn to_problem(&self) -> (S<Decl>, Tokenization) {
         assert!(self.typ.is_some(), "Declaration {} has no type.", self.name);
         let mut decl = S::new(self.to_decl(Vec::new()));
         let mut tokens = Tokenization::default();
         self.translate::<false>(&mut decl, &ES::new(), &mut Vec::new(), &[], &mut tokens, Some(Polarity::Goal));
-        ai::start(&tokens);
+        reset_weights();
         compile(Type(decl.downgrade(), ES::new()));
         (decl, tokens)
     }

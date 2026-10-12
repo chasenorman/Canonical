@@ -7,6 +7,7 @@ use std::iter;
 use std::panic;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use burn::tensor::backend::Backend;
 use burn::tensor::{DType, Int, Tensor, TensorData};
@@ -110,20 +111,20 @@ fn run((model, device): &(Model, DispatchDevice), symbols: Symbols) -> Vec<Vec<f
     weight.chunks(n).map(<[f32]>::to_vec).collect()
 }
 
-/// Resets `WEIGHTS` to uniform, then sets it to the model's goal × premise weights for `tokens`
-/// from a background thread unless another problem has reset it since. Search reads `WEIGHTS`
-/// as it goes, so it needn't wait. Problems with no premises or too many rows stay uniform.
+const DELAY: Duration = Duration::from_secs(1);
+
 pub fn start(tokens: &Tokenization) {
-    // A new allocation, so the thread can tell whether `WEIGHTS` is still this problem's.
-    let uniform = Arc::new(Vec::new());
-    WEIGHTS.store(uniform.clone());
+    let started = Instant::now();
+    let uniform = WEIGHTS.load_full();
     if tokens.premises.is_empty() || tokens.tokens.len() > MAX_ROWS { return; }
     let symbols = Symbols::new(tokens);
     thread::spawn(move || {
         let model = MODEL.lock().unwrap();
         // Problems started in quick succession queue up here: only the latest runs.
-        if Arc::ptr_eq(&WEIGHTS.load(), &uniform) {
-            WEIGHTS.compare_and_swap(&uniform, Arc::new(run(&model, symbols)));
-        }
+        if !Arc::ptr_eq(&WEIGHTS.load(), &uniform) { return; }
+        let weight = run(&model, symbols);
+        drop(model);
+        thread::sleep(DELAY.saturating_sub(started.elapsed()));
+        WEIGHTS.compare_and_swap(&uniform, Arc::new(weight));
     });
 }
