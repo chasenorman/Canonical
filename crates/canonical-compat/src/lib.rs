@@ -3,7 +3,6 @@ use canonical_core::prover::Prover;
 pub mod ir;
 pub mod refine;
 pub mod reduction;
-pub mod ai;
 use ir::*;
 use canonical_core::stats::STEP_COUNT;
 use std::time::SystemTime;
@@ -76,7 +75,8 @@ macro_rules! P {
 #[tokio::main]
 pub async fn main() {
     let problem = IRDecl::load("lean/debug.json".to_string());
-    let (decl, _) = problem.to_problem();
+    let (decl, tokens) = problem.to_problem();
+    canonical_core::ai::start(&tokens);
 
     // let state = AppState {
     //     current: Prover::new(decl.downgrade()).meta,

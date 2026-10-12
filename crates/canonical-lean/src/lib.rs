@@ -465,7 +465,7 @@ where
 
 /// `canonical` in Lean.
 #[no_mangle]
-pub unsafe extern "C" fn canonical(decl: *const LeanDecl, timeout: u64, count: usize) -> *const LeanResult {
+pub unsafe extern "C" fn canonical(decl: *const LeanDecl, timeout: u64, count: usize, ai: u8) -> *const LeanResult {
     let instance = INSTANCE.lock().unwrap();
     to_lean_result(Some(instance), || {
         let ir_decl = to_ir_decl(decl);
@@ -473,7 +473,8 @@ pub unsafe extern "C" fn canonical(decl: *const LeanDecl, timeout: u64, count: u
 
         let arc : Arc<Mutex<Vec<IRExpr>>> = Arc::new(Mutex::new(Vec::new()));
         let arc_clone = arc.clone();
-        let (problem, _) = ir_decl.to_problem();
+        let (problem, tokens) = ir_decl.to_problem();
+        if ai != 0 { canonical_core::ai::start(&tokens); }
         let prover = Prover::new(problem.downgrade());
 
         let worker = thread::spawn(move || {

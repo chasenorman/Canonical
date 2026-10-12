@@ -1,12 +1,13 @@
 use canonical_core::core::*;
 use canonical_core::memory::{S, W};
+use canonical_core::ai::Tokenization;
 use canonical_core::search::test;
 use canonical_core::compiler::compile;
+use canonical_core::heuristic::reset_weights;
 use std::fmt;
 use serde::{Serialize, Deserialize};
 use std::fs::File;
 use crate::reduction::*;
-use crate::ai::*;
 use canonical_core::stats::SearchInfo;
 use std::any::Any;
 
@@ -93,17 +94,25 @@ impl IRDecl {
             )).collect();
         }
         if let (Some(polarity), Some(typ)) = (polarity, &self.typ) {
-            tokens.declare(decl.downgrade(), polarity);
+            let list = match polarity {
+                Polarity::Goal => &mut tokens.goals,
+                Polarity::Premise => &mut tokens.premises
+            };
+            decl.borrow_mut().index = list.len();
+            list.push(decl.downgrade());
             decl.borrow_mut().typ = Some(typ.to_expr(es, &extend(position, &[Position::Type]), tokens, Some(polarity)));
-        } 
+        } else {
+            tokens.tokens.push((position.to_vec(), decl.downgrade()));
+        }
     }
 
-    /// Translate this declaration into a `Decl` to be solved for by a `Prover`, and compile the problem.
+    /// Translate this declaration into a `Decl` to be solved for by a `Prover` and compile the problem.
     pub fn to_problem(&self) -> (S<Decl>, Tokenization) {
         assert!(self.typ.is_some(), "Declaration {} has no type.", self.name);
         let mut decl = S::new(self.to_decl(Vec::new()));
-        let mut tokens = Tokenization::new();
+        let mut tokens = Tokenization::default();
         self.translate::<false>(&mut decl, &ES::new(), &mut Vec::new(), &[], &mut tokens, Some(Polarity::Goal));
+        reset_weights();
         compile(Type(decl.downgrade(), ES::new()));
         (decl, tokens)
     }
