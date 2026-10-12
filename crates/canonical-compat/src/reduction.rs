@@ -75,7 +75,7 @@ fn get_children(builds: &Vec<(&mut Build, &IRSpine, ES, Vec<Position>)>) -> Vec<
     return children;
 }
 
-fn get_bindings(build: &mut Build, term: &IRSpine, es: ES, position: &[Position]) -> S<Bindings> {
+fn get_bindings(build: &mut Build, term: &IRSpine, es: ES, position: &[Position], tokens: &mut Tokenization) -> S<Bindings> {
     let mut params: Vec<S<Decl>> = Vec::new();
     let mut found = false;
 
@@ -85,7 +85,9 @@ fn get_bindings(build: &mut Build, term: &IRSpine, es: ES, position: &[Position]
         if es.index_of(&arg.spine.head).is_none() && build.arguments.contains(&arg.spine.head) {
             build.arguments.remove(&arg.spine.head);
             let position = extend(position, &[Position::Arg(i)]);
-            params.push(S::new(Decl::new(arg.spine.head.clone(), position)));
+            let decl = S::new(Decl::new(arg.spine.head.clone(), position.clone()));
+            tokens.tokens.push((position, decl.downgrade()));
+            params.push(decl);
             found = true;
         } else {
             params.push(S::new(Decl::new("*".to_string(), Vec::new())));
@@ -118,7 +120,7 @@ fn _to_rules(state: Vec<(&mut Build, &IRSpine, ES, Vec<Position>)>, owned_linked
         let children: Vec<usize> = get_children(&builds);
 
         for (build, term, es, position) in builds.iter_mut() {
-            let bindings = get_bindings(build, term, es.clone(), position);
+            let bindings = get_bindings(build, term, es.clone(), position, tokens);
 
             build.pattern.push(Some(Symbol {
                 decl: bind.clone(),
