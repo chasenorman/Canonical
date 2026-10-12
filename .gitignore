@@ -138,3 +138,5 @@ lean/generated-rust-lib/*
 lake-manifest.json
 
 lean/debug.json
+# Shared library built by build_agda.py
+/lib/
