@@ -10,7 +10,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use burn::tensor::backend::Backend;
-use burn::tensor::{DType, Int, Tensor, TensorData};
+use burn::tensor::{Int, Tensor, TensorData};
 use burn::{Dispatch, DispatchDevice};
 use once_cell::sync::Lazy;
 
@@ -37,24 +37,24 @@ type Model = model::Model<Dispatch>;
 const MAX_ROWS: usize = 5000;
 
 /// `path` as symbols, the matrices the model multiplies by in turn: `Type`, `LHS`, `RHS` are 0,
-/// 1, 2, and `Kind(i)` is Kind's "right" i + 1 times, then its "down" (3 and 7 for `Rule`, 4 and 8
+/// 1, 2, and `Kind(i)` is Kind's "right" i times, then its "down" (3 and 7 for `Rule`, 4 and 8
 /// `Param`, 5 and 9 `Let`, 6 and 10 `Arg`). `PAD`, the identity, pads paths to one length.
-fn symbols(path: &[Position]) -> Vec<i64> {
+fn symbols(path: &[Position]) -> Vec<u8> {
     path.iter().flat_map(|position| {
         let (right, repeats, last) = match *position {
             Position::Type => (0, 0, 0),
             Position::LHS => (0, 0, 1),
             Position::RHS => (0, 0, 2),
-            Position::Rule(i) => (3, i + 1, 7),
-            Position::Param(i) => (4, i + 1, 8),
-            Position::Let(i) => (5, i + 1, 9),
-            Position::Arg(i) => (6, i + 1, 10),
+            Position::Rule(i) => (3, i, 7),
+            Position::Param(i) => (4, i, 8),
+            Position::Let(i) => (5, i, 9),
+            Position::Arg(i) => (6, i, 10),
         };
         iter::repeat_n(right, repeats).chain([last])
     }).collect()
 }
 
-const PAD: i64 = 11;
+const PAD: u8 = 11;
 
 /// The model, on wgpu's GPU (Metal, Vulkan or DX12), loaded when first needed. The lock
 /// also keeps problems from running at once.
@@ -76,7 +76,7 @@ pub struct Symbols {
 impl Symbols {
     pub fn new(tokens: &Tokenization) -> Symbols {
         let declaration = |d: &W<Decl>| symbols(&d.borrow().position);
-        let paths: [Vec<Vec<i64>>; 4] = [
+        let paths: [Vec<Vec<u8>>; 4] = [
             tokens.tokens.iter().map(|(p, _)| symbols(p)).collect(),
             tokens.tokens.iter().map(|(_, d)| declaration(d)).collect(),
             tokens.goals.iter().map(declaration).collect(),
@@ -90,10 +90,10 @@ impl Symbols {
         Symbols { token_positions, token_declarations, goals, premises }
     }
 
-    /// The model's inputs, on `device`.
+    /// The model's inputs, on `device`, as its native ints: the model casts them itself.
     fn inputs(self, device: &DispatchDevice) -> [Tensor<Dispatch, 2, Int>; 4] {
         [self.token_positions, self.token_declarations, self.goals, self.premises]
-            .map(|d| Tensor::from_data(d, (device, DType::I64)))
+            .map(|d| Tensor::from_data(d, device))
     }
 }
 
