@@ -5,3 +5,12 @@ resolver = "2"
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
+
+# The Lean plugin (build_lean.py and the release workflow build it): without its symbol table,
+# which Lean doesn't need, and optimized as one unit, which makes it smaller and the prover
+# faster, at the cost of a link of a few minutes. panic must stay "unwind": ai.rs and
+# canonical-lean catch panics.
+[profile.release]
+strip = "symbols"
+lto = "fat"
+codegen-units = 1
