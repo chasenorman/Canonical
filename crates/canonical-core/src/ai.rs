@@ -90,7 +90,7 @@ impl Symbols {
         Symbols { token_positions, token_declarations, goals, premises }
     }
 
-    /// The model's inputs, on `device`, as its native ints: the model casts them itself.
+    /// The model's inputs, on `device`.
     fn inputs(self, device: &DispatchDevice) -> [Tensor<Dispatch, 2, Int>; 4] {
         [self.token_positions, self.token_declarations, self.goals, self.premises]
             .map(|d| Tensor::from_data(d, device))
