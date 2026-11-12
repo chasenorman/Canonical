@@ -15,6 +15,7 @@ use canonical_compat::refine::*;
 use tokio::runtime::Runtime;
 use std::panic;
 use std::sync::MutexGuard;
+use std::time::SystemTime;
 // use std::fs::OpenOptions;
 // use std::io::Write;
 
@@ -189,7 +190,8 @@ pub struct LeanRule {
     lhs: *const LeanSpine,
     rhs: *const LeanSpine,
     attribution: *const LeanArrayObject,
-    is_redex: bool
+    is_redex: bool,
+    speculative: bool
 }
 
 fn to_ir_rule(r: *const LeanRule) -> IREquation {
@@ -198,7 +200,8 @@ fn to_ir_rule(r: *const LeanRule) -> IREquation {
             lhs: to_ir_spine((*r).lhs),
             rhs: to_ir_spine((*r).rhs),
             attribution: to_vec((*r).attribution).iter().map(|x| to_string(*x as *const LeanStringObject)).collect(),
-            is_redex: (*r).is_redex
+            is_redex: (*r).is_redex,
+            speculative: (*r).speculative
         }
     }
 }
@@ -310,23 +313,17 @@ fn to_lean_expr(expr: &IRExpr) -> *const LeanExpr {
 pub struct CanonicalResult {
     m_header: LeanObject,
     terms: *const LeanArrayObject,
-    attempted_resolutions: u32,
-    successful_resolutions: u32,
     steps: u32,
-    last_level_steps: u32,
-    branching: f32
+    time: f32
 }
 
-fn to_canonical_result(terms: *const LeanArrayObject, result: DFSResult, last_level_steps: u32) -> *const CanonicalResult {
+fn to_canonical_result(terms: *const LeanArrayObject, result: DFSResult, time: f32) -> *const CanonicalResult {
     unsafe {
         let scalar_sz = std::mem::size_of::<u32>()*4 + std::mem::size_of::<f32>();
         let o = lean_alloc_ctor(0, 1, scalar_sz) as *mut CanonicalResult;
         (*o).terms = terms;
-        (*o).attempted_resolutions = result.attempts;
-        (*o).successful_resolutions = result.steps + result.unknown_count;
         (*o).steps = result.steps;
-        (*o).last_level_steps = last_level_steps;
-        (*o).branching = result.branching as f32 / result.steps as f32;
+        (*o).time = time;
         o
     }
 }
@@ -477,6 +474,8 @@ pub unsafe extern "C" fn canonical(decl: *const LeanDecl, timeout: u64, count: u
         if ai != 0 { canonical_core::ai::start(&tokens); }
         let prover = Prover::new(problem.downgrade());
 
+        let start = SystemTime::now();
+
         let worker = thread::spawn(move || {
             main(prover, tx, count, arc_clone)
         });
@@ -484,11 +483,11 @@ pub unsafe extern "C" fn canonical(decl: *const LeanDecl, timeout: u64, count: u
         let _ = rx.recv_timeout(Duration::from_secs(timeout));
         RUN.store(false, Ordering::Relaxed);
         match worker.join() {
-            Ok((result, last_level_steps)) => {
+            Ok((result, _last_level_steps)) => {
                 let v = arc.lock().unwrap();
                 let terms = to_lean_array(&v.iter().map(|x| to_lean_expr(x) as *const LeanObject).collect());
-
-                to_canonical_result(terms, result, last_level_steps) as *const LeanObject
+                let time = SystemTime::now().duration_since(start).unwrap().as_secs_f32();
+                to_canonical_result(terms, result, time) as *const LeanObject
             }
             Err(e) => {
                 let msg = if let Some(s) = e.downcast_ref::<String>() { s.as_str() } else 

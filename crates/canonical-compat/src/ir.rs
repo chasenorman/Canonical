@@ -34,7 +34,8 @@ pub struct IREquation {
     pub rhs: IRSpine,
     #[serde(skip)]
     pub attribution: Vec<String>,
-    pub is_redex: bool
+    pub is_redex: bool,
+    pub speculative: bool
 }
 
 /// A declaration, with a variable `name`, optional `typ`, and defining `equations`.

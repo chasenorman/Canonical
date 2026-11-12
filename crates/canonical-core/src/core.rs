@@ -357,7 +357,8 @@ pub struct Symbol {
 pub struct Rule {
     pub pattern: Vec<Option<Symbol>>,
     pub replacement: S<Meta>,
-    pub attribution: Vec<String>
+    pub attribution: Vec<String>,
+    pub speculative: bool
 }
 
 /// One step in a path through the problem, viewed as nested declarations and expressions:
@@ -578,15 +579,14 @@ impl Term {
             let decl = var.decl.clone();
             let whnf = WHNF(self.clone(), Head::Var(var));
             if RULES && !decl.borrow().rules.is_empty() {
-                let mut matchers = decl.borrow().rules.iter().map(|rule| Matcher {
+                let matchers = decl.borrow().rules.iter().map(|rule| Matcher {
                     pattern: rule.pattern.iter(),
                     replacement: Term { base: rule.replacement.downgrade(), es: es.clone() },
                     rule: &rule
                 }).collect();
                 let mut stuck : Option<W<Meta>> = None;
-                let matched = whnf.pattern_match(&mut matchers, owned_linked, attribution, allow_redexes || whnf.0.base.borrow().from_original_problem, allow_redexes, &mut stuck);
-                if let ControlFlow::Break((term, rule)) = matched {
-                    attribution.attribute(rule);
+                let matched = whnf.pattern_match(matchers, owned_linked, attribution, allow_redexes || whnf.0.base.borrow().from_original_problem, allow_redexes, &mut stuck);
+                if let ControlFlow::Break(term) = matched {
                     return term.whnf::<RULES, C>(owned_linked, attribution, allow_redexes);
                 }
                 if let Some(meta) = stuck {
@@ -603,35 +603,36 @@ impl Term {
 impl <'a> WHNF {
     /// `can_stuck` is whether a metavariable blocking a match makes the term stuck,
     /// and `allow_redexes` is passed on to the reduction of arguments.
-    fn pattern_match<C: Attribution>(&self, patterns: &mut Vec<Matcher<'a>>, owned_linked: &mut Vec<S<Linked>>, attribution: &mut C,
-        can_stuck: bool, allow_redexes: bool, stuck: &mut Option<W<Meta>>) -> ControlFlow<(Term, &'a Rule)> {
+    fn pattern_match<C: Attribution>(&self, mut patterns: Vec<Matcher<'a>>, owned_linked: &mut Vec<S<Linked>>, attribution: &mut C,
+        can_stuck: bool, allow_redexes: bool, stuck: &mut Option<W<Meta>>) -> ControlFlow<Term, Vec<Matcher<'a>>> {
         guard_overflow();
         match &self.1 {
             Head::Meta(meta) => {
-                patterns.retain_mut(|matcher| 
-                    matcher.pattern.next().unwrap().is_none()
-                );
-                if can_stuck {
-                    stuck.replace(meta.clone());
+                for i in (0..patterns.len()).rev() {
+                    if patterns[i].pattern.next().unwrap().is_some() {
+                        if can_stuck && patterns[i].rule.speculative { stuck.replace(meta.clone()); }
+                        patterns.remove(i);
+                    }
                 }
-                ControlFlow::Continue(())
+                ControlFlow::Continue(patterns)
             }
             Head::Var(var) => {
-                let mut recursive = Vec::new();
+                let mut recursive = Vec::with_capacity(patterns.len());
                 let mut ordering: Option<&Vec<usize>> = None;
                 
                 for i in (0..patterns.len()).rev() {
                     if let Some(symbol) = patterns[i].pattern.next().unwrap() {
                         let mut matcher = patterns.remove(i);
                         if symbol.decl.eq(&var.decl) {
-                            ordering = Some(&symbol.children);
                             matcher.replacement.es = matcher.replacement.es.append(Node {
                                 entry: Entry::subst(Subst(WVec::new(&self.0.base.borrow().assignment.as_ref().unwrap().args), self.0.es.clone())),
                                 bindings: symbol.bindings.downgrade()
                             }, owned_linked);
                             if matcher.pattern.len() == 0 {
-                                return ControlFlow::Break((matcher.replacement.clone(), matcher.rule));
+                                attribution.attribute(matcher.rule);
+                                return ControlFlow::Break(matcher.replacement.clone());
                             }
+                            ordering = Some(&symbol.children);
                             recursive.push(matcher);
                         }
                     }
@@ -640,13 +641,13 @@ impl <'a> WHNF {
                 if let Some(ordering) = ordering {
                     for &i in ordering {
                         let arg = self.0.arg(i, Entry::vars(next_u64()), owned_linked);
-                        arg.whnf::<true, C>(owned_linked, attribution, allow_redexes).pattern_match(&mut recursive, owned_linked, attribution, can_stuck, allow_redexes, stuck)?;
+                        recursive = arg.whnf::<true, C>(owned_linked, attribution, allow_redexes).pattern_match(recursive, owned_linked, attribution, can_stuck, allow_redexes, stuck)?;
                         if recursive.is_empty() { break; }
                     }
                 }
 
                 patterns.append(&mut recursive); // TODO this changes the order
-                ControlFlow::Continue(())
+                ControlFlow::Continue(patterns)
             }
         }
     }

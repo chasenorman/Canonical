@@ -5,7 +5,8 @@ use std::collections::{HashMap, HashSet};
 
 struct Build {
     pub pattern: Vec<Option<Symbol>>,
-    pub arguments: HashSet<String>
+    pub arguments: HashSet<String>,
+    pub speculative: bool
 }
 
 impl IRExpr {
@@ -151,7 +152,8 @@ pub fn to_rules(rules: &Vec<IREquation>, es: &ES, owned_linked: &mut Vec<S<Linke
         rule.rhs.free_variables(es, &mut arguments);
         Build {
             pattern: Vec::new(),
-            arguments
+            arguments,
+            speculative: rule.speculative
         }
     }).collect();
 
@@ -185,7 +187,8 @@ pub fn to_rules(rules: &Vec<IREquation>, es: &ES, owned_linked: &mut Vec<S<Linke
             pattern: build.pattern,
             replacement: S::new(rule.rhs.to_body(rhs_es, S::new(Bindings { params: Vec::new(), lets: Vec::new() }), Vec::new(),
                 &extend(position, &[Position::Rule(j), Position::RHS]), tokens)),
-            attribution: rule.attribution.clone()
+            attribution: rule.attribution.clone(),
+            speculative: build.speculative
         }
     }).collect()
 }
