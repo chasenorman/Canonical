@@ -23,3 +23,8 @@ Build the Lean project in the `lean` directory by opening it in VSCode. This dow
 Run `python3 build_lean.py` to update the dynlib for your platform with a newly compiled version. 
 
 For more detailed information about compiling on different platforms, check `.github/workflows`.
+## Build Agda library
+
+Run `python3 build_agda.py` to compile `canonical-agda` in release mode and copy the shared library to `lib/`.
+
+Agda loads the library when Canonical is first called (`C-c C-g`), so it does not need it to build. Either set `AGDA_CANONICAL_LIB` to the path of the library, e.g. `export AGDA_CANONICAL_LIB=$PWD/lib/libcanonical_agda.so`, or add `lib/` to the library search path (`LD_LIBRARY_PATH` on Linux, `DYLD_LIBRARY_PATH` on macOS, `PATH` on Windows).
